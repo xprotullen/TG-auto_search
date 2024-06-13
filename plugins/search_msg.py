@@ -8,7 +8,7 @@ from html import escape
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, Message
 from search_info import DATABASE, send_result_message
 import logging
-from info import Info
+from info import SEARCH_ID
 
 MEDIA_FILTER = enums.MessagesFilter.VIDEO 
 
@@ -20,8 +20,7 @@ async def filter(client: Client, message: Message):
     if len(message.text) > 2:
         query = message.text        
         msgs = []
-        search_id = Info.SEARCH_ID
-        async for msg in client.USER.search_messages(search_id, query=query, filter=MEDIA_FILTER):
+        async for msg in client.USER.search_messages(SEARCH_ID, query=query, filter=MEDIA_FILTER):
             caption = msg.caption
             link = msg.link
             movie_name, year, quality = extract_movie_details(caption)
