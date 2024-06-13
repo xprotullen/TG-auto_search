@@ -1,7 +1,6 @@
 import logging
 from pyrogram import Client, enums, __version__
 from info import API_HASH, APP_ID, LOGGER, BOT_TOKEN 
-from pyrogram import types
 from user import User
 
 class Wroxen(Client):
