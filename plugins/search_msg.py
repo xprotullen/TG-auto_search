@@ -10,7 +10,6 @@ from search_info import DATABASE, send_result_message
 import logging
 from info import Info
 
-DATABASE = {}
 MEDIA_FILTER = enums.MessagesFilter.VIDEO 
 
 @Client.on_message(filters.group & filters.text)
