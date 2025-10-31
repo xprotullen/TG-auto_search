@@ -22,9 +22,23 @@ def delete_chat_data(chat_id):
     result = movies_col.delete_many({"chat_id": chat_id})
     return result.deleted_count
 
-def get_movies(chat_id, query):
-    # Case-insensitive search in captions
-    return list(movies_col.find({
-        "chat_id": chat_id,
-        "caption": {"$regex": query, "$options": "i"}
-    }))
+def get_movies(chat_id: int, query: str):
+    """
+    Advanced natural search:
+    - Splits query into words (e.g. 'mirage 480p')
+    - Matches all words case-insensitively in caption
+    - Returns a list of matching movie documents
+    """
+    if not query:
+        return []
+
+    # Split the query into separate words
+    words = query.split()
+
+    # Build AND filters for all words
+    regex_filters = [{"caption": {"$regex": word, "$options": "i"}} for word in words]
+
+    filters = {"chat_id": chat_id, "$and": regex_filters}
+
+    results = list(movies_col.find(filters))
+    return results
