@@ -1,7 +1,7 @@
 import re
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from database import search_movies
+from db import search_movies
 from search_info import send_result_message
 
 @Client.on_message(filters.group & filters.text)
