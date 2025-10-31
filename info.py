@@ -10,8 +10,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 APP_ID = int(os.environ.get("APP_ID", ""))
 API_HASH = os.environ.get("API_HASH", "") 
 USER_SESSION = os.environ.get("USER_SESSION", "")
-ADMIN_IDS = [int(admin) if id_pattern.search(admin) else admin for admin in os.environ['ADMIN_IDS'].split()]
-SEARCH_ID = int(os.environ.get("SEARCH_ID", ""))
 VERIFY = {}
 
 
