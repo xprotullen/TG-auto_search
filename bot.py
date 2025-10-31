@@ -1,36 +1,43 @@
-import logging
-from pyrogram import Client, enums, __version__
-from info import API_HASH, APP_ID, LOGGER, BOT_TOKEN 
-from user import User
+# main.py
+import asyncio
+from pyrogram import Client
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from info import BOT_TOKEN, API_ID, API_HASH, USER_SESSION, AUTO_INDEX_INTERVAL_HOURS
+from index_handler import index_chat_auto
+import index_handler  # to ensure functions available (and route decorators loaded)
+import delete_handler
+import search_msg  # decorator handlers loaded
+from database import init_db
 
-class Wroxen(Client):
-    USER: User = None
-    USER_ID: int = None
-  
-    def __init__(self):
-        super().__init__(
-            "wroxen",
-            api_hash=API_HASH,
-            api_id=APP_ID,
-            plugins={
-                "root": "plugins"
-            },
-            workers=200,
-            bot_token=BOT_TOKEN,
-            sleep_threshold=10
-        )
-        self.LOGGER = LOGGER
+# create bot client
+bot = Client("movie_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-    async def start(self):
-        await super().start()
-        bot_details = await self.get_me()
-        self.set_parse_mode(enums.ParseMode.HTML)
-        self.LOGGER(__name__).info(
-            f"@{bot_details.username}  started! "
-        )
-        self.USER, self.USER_ID = await User().start()
-       
+# optional user client (for searching messages across chats using user account)
+USER = None
+if USER_SESSION:
+    USER = Client("movie_user", api_id=API_ID, api_hash=API_HASH, session_string=USER_SESSION)
 
-    async def stop(self, *args):
-        await super().stop()
-        self.LOGGER(__name__).info("Bot stopped. Bye.")
+# attach USER to bot object for convenience (used in index_handler)
+async def start_clients():
+    await bot.start()
+    if USER:
+        await USER.start()
+        # attach as attribute so handlers can use client.USER
+        bot.USER = USER
+    else:
+        bot.USER = bot  # fallback - but bot may have restricted search
+
+    print("Clients started")
+
+    # start scheduler for auto-index
+    scheduler = AsyncIOScheduler()
+    # run every AUTO_INDEX_INTERVAL_HOURS hours
+    scheduler.add_job(lambda: asyncio.create_task(index_chat_auto(bot)), "interval", hours=AUTO_INDEX_INTERVAL_HOURS)
+    scheduler.start()
+    print("Scheduler started")
+
+    # keep running
+    await asyncio.get_event_loop().create_future()
+
+if __name__ == "__main__":
+    asyncio.run(start_clients())
