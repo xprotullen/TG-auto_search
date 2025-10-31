@@ -1,121 +1,111 @@
+# plugins/search_msg.py
+
 import re
-import logging
+import asyncio
+from pyrogram import filters, enums, Client
 from html import escape
-from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, Message
+from pyrogram.types import CallbackQuery, Message
 from search_info import DATABASE, send_result_message, extract_movie_details
-from database import database
+from info import SEARCH_ID, ADMIN_ID
+from db import cache_col
 
-# Setup logger
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
+MEDIA_FILTER = enums.MessagesFilter.VIDEO 
 
 @Client.on_message(filters.group & filters.text)
 async def filter(client: Client, message: Message):
-    """Handle text messages in groups and search for movies."""
-
-    # Ignore commands or emoji-only messages
-    if re.findall(r"((^\/|^,|^!|^\.|^[\U0001F600-\U000E007F]).*)", message.text):
+    if re.findall("((^\/|^,|^!|^\.|^[\U0001F600-\U000E007F]).*)", message.text):
         return
 
-    if len(message.text) <= 2:
+    query = message.text.strip().lower()
+    if len(query) <= 2:
         return
 
-    query = message.text.strip()
+    # 1️⃣ Check memory cache
+    if query in DATABASE:
+        data = DATABASE[query]
+        return await send_result_message(client, message, query, data['movies'], data['page'])
 
-    # 1️⃣ First, check in the local database
-    db_movies = await database.search_movies(message.chat.id, query)
+    # 2️⃣ Check MongoDB
+    mongo_data = await cache_col.find_one({"query": query})
+    if mongo_data:
+        DATABASE[query] = mongo_data
+        return await send_result_message(client, message, query, mongo_data['movies'], mongo_data.get('page', 1))
 
-    if db_movies:
-        msgs = []
-        for movie in db_movies:
-            movie_text = (
-                f"<b>{escape(movie.get('movie_name', 'Unknown'))} "
-                f"({movie.get('year', 'Unknown')}) "
-                f"{movie.get('quality', '')}</b>\n"
-                f"<b>Link:</b> {movie.get('message_link', '')}"
-            )
-            msgs.append(movie_text)
-
-        page = 1
-        await send_result_message(client, message, query, msgs, page)
-        return
-
-    # 2️⃣ If not found in database, search in source chat
-    group_data = await database.get_group(message.chat.id)
-    if not group_data:
-        return
-
-    source_chat_id = group_data.get("source_chat_id")
-    if not source_chat_id:
-        return
-
+    # 3️⃣ Search Telegram
     msgs = []
-    try:
-        async for msg in client.USER.search_messages(
-            source_chat_id,
-            query=query,
-            filter=enums.MessagesFilter.VIDEO
-        ):
-            caption = msg.caption or ""
-            link = msg.link
-            movie_name, year, quality = extract_movie_details(caption)
-            movie_text = (
-                f"<b>{escape(movie_name)} ({year}) {quality}</b>\n"
-                f"<b>Link:</b> {link}"
-            )
-            msgs.append(movie_text)
+    async for msg in client.USER.search_messages(SEARCH_ID, query=query, filter=MEDIA_FILTER):
+        caption = msg.caption or ""
+        link = msg.link
+        movie_name, year, quality = extract_movie_details(caption)
+        movie_text = f"<b>{escape(movie_name)} ({year}) {quality}</b>\n<b>Link:</b> {link}"
+        msgs.append(movie_text)
 
-        if not msgs:
-            return
+    if not msgs:
+        return await message.reply_text("❌ No results found.")
 
-        page = 1
-        await send_result_message(client, message, query, msgs, page)
-
-    except Exception as e:
-        logger.error(f"Error while searching in source chat: {e}")
+    await send_result_message(client, message, query, msgs, 1)
 
 
 @Client.on_callback_query()
 async def callback_handler(client: Client, query: CallbackQuery):
-    """Handle pagination callback buttons."""
     data = query.data
+    if data.startswith(("next_page:", "previous_page:")):
+        _, query_text, page = data.split(":")
+        page = int(page)
 
-    # ⏭ Next Page
-    if data.startswith('next_page:'):
-        if query.message.reply_to_message.from_user.id == query.from_user.id:
-            _, query_text, page = data.split(':')
-            db_entry = DATABASE.get(query_text)
+        db_entry = DATABASE.get(query_text) or await cache_col.find_one({"query": query_text})
+        if not db_entry:
+            return await query.answer("⚠️ This message is too old.")
 
-            if db_entry:
-                movies = db_entry['movies']
-                result_message_id = db_entry['message_id']
+        if query.message.reply_to_message.from_user.id != query.from_user.id:
+            return await query.answer("🚫 This isn’t for you!", show_alert=True)
 
-                await query.answer()
-                await send_result_message(
-                    client, query.message, query_text, movies, int(page), result_message_id
-                )
-            else:
-                await query.answer("यह मैसेज काफी पुराना हो चुका है।")
-        else:
-            await query.answer("यह आपके लिए नहीं है!", show_alert=True)
+        await query.answer()
+        await send_result_message(client, query.message, query_text, db_entry['movies'], page, db_entry.get('message_id'))
 
-    # ⏮ Previous Page
-    elif data.startswith('previous_page:'):
-        if query.message.reply_to_message.from_user.id == query.from_user.id:
-            _, query_text, page = data.split(':')
-            db_entry = DATABASE.get(query_text)
 
-            if db_entry:
-                movies = db_entry['movies']
-                result_message_id = db_entry['message_id']
+# 🔹 /index command (save all messages in DB)
+@Client.on_message(filters.command("index") & filters.user(ADMIN_ID))
+async def index_command(client: Client, message: Message):
+    await message.reply_text("📦 Starting indexing... This might take a while.")
 
-                await query.answer()
-                await send_result_message(
-                    client, query.message, query_text, movies, int(page), result_message_id
-                )
-            else:
-                await query.answer("यह मैसेज काफी पुराना हो चुका है।")
-        else:
-            await query.answer("यह आपके लिए नहीं है!", show_alert=True)
+    total = 0
+    async for msg in client.USER.search_messages(SEARCH_ID, filter=MEDIA_FILTER):
+        caption = msg.caption or ""
+        link = msg.link
+        movie_name, year, quality = extract_movie_details(caption)
+        movie_text = f"<b>{escape(movie_name)} ({year}) {quality}</b>\n<b>Link:</b> {link}"
+
+        query_key = movie_name.lower().strip()
+        if not query_key:
+            continue
+
+        DATABASE.setdefault(query_key, {"movies": [], "page": 1, "message_id": None})
+        DATABASE[query_key]["movies"].append(movie_text)
+
+        await cache_col.update_one(
+            {"query": query_key},
+            {"$addToSet": {"movies": movie_text}, "$set": {"page": 1}},
+            upsert=True
+        )
+
+        total += 1
+        if total % 100 == 0:
+            await asyncio.sleep(2)
+
+    await message.reply_text(f"✅ Indexing complete!\nTotal movies indexed: <b>{total}</b>")
+
+
+# 🔹 /rebuildcache command (load from MongoDB)
+@Client.on_message(filters.command("rebuildcache") & filters.user(ADMIN_ID))
+async def rebuild_cache(client: Client, message: Message):
+    count = 0
+    async for entry in cache_col.find({}):
+        DATABASE[entry["query"]] = {
+            "movies": entry["movies"],
+            "page": entry.get("page", 1),
+            "message_id": entry.get("message_id")
+        }
+        count += 1
+
+    await message.reply_text(f"🔁 Cache rebuilt from MongoDB!\nLoaded: <b>{count}</b> entries.")
