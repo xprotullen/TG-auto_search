@@ -44,6 +44,7 @@ async def set_cached_results(chat_id: int, query: str, results: list):
 async def search_movie(client, message):
     query = message.text.strip()
     chat_id = int(message.chat.id)
+    user_id = message.from_user.id
 
     # Ignore bot commands or empty queries
     if not query or query.startswith(("/", ".", "!", ",")):
@@ -71,13 +72,13 @@ async def search_movie(client, message):
     pages = max(1, (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE)
 
     await send_results(
-        message, query, chat_id, 1, results, total, pages,
+        message, query, chat_id, user_id, 1, results, total, pages,
         source=source, edit=False
     )
 
 
 # ---------------- SEND RESULTS ---------------- #
-async def send_results(message, query, chat_id, page, all_results, total, pages, source=None, edit=False):
+async def send_results(message, query, chat_id, user_id, page, all_results, total, pages, source=None, edit=False):
     start = (page - 1) * RESULTS_PER_PAGE
     end = start + RESULTS_PER_PAGE
     movies = all_results[start:end]
@@ -118,9 +119,13 @@ async def send_results(message, query, chat_id, page, all_results, total, pages,
     buttons = []
     row = []
     if page > 1:
-        row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page|{chat_id}|{query}|{page-1}"))
+        row.append(
+            InlineKeyboardButton("⬅️ Prev", callback_data=f"page|{chat_id}|{query}|{page-1}|{user_id}")
+        )
     if page < pages:
-        row.append(InlineKeyboardButton("Next ➡️", callback_data=f"page|{chat_id}|{query}|{page+1}"))
+        row.append(
+            InlineKeyboardButton("Next ➡️", callback_data=f"page|{chat_id}|{query}|{page+1}|{user_id}")
+        )
     if row:
         buttons.append(row)
 
@@ -146,11 +151,16 @@ async def send_results(message, query, chat_id, page, all_results, total, pages,
 @Client.on_callback_query(filters.regex(r"^page\|"))
 async def pagination_handler(client, query: CallbackQuery):
     try:
-        _, chat_id, search_query, page = query.data.split("|", 3)
+        _, chat_id, search_query, page, owner_id = query.data.split("|", 4)
         chat_id = int(chat_id)
         page = int(page)
+        owner_id = int(owner_id)
     except Exception:
         return await query.answer("⚠️ Invalid data.", show_alert=True)
+
+    # 🧠 Check: Only the same user can use pagination
+    if query.from_user.id != owner_id:
+        return await query.answer("⚠️ Only the original user can use these buttons!", show_alert=True)
 
     # 1️⃣ Fetch cached data (Redis only)
     cache_data = await get_cached_results(chat_id, search_query)
@@ -165,4 +175,4 @@ async def pagination_handler(client, query: CallbackQuery):
         return await query.answer("⚠️ Invalid page.", show_alert=True)
 
     await query.answer()
-    await send_results(query.message, search_query, chat_id, page, all_results, total, pages, edit=True)
+    await send_results(query.message, search_query, chat_id, owner_id, page, all_results, total, pages, edit=True)
