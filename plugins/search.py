@@ -71,7 +71,8 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
         if print_type:
             caption_parts.append(print_type)
         if lang:
-            caption_parts.append(f"{lang}")
+            lang = lang.replace("'", "")
+            caption_parts.append({lang})
         if season:
             caption_parts.append(f"S{str(season).zfill(2)}")
         if episode:
