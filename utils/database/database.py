@@ -92,6 +92,7 @@ async def save_movie_async(chat_id: int, title: str = None, year: int = None,
     """
     Save one movie document.
     """
+    try:
         doc = {
             "chat_id": int(chat_id),
             "title": title.strip() if title else None,
