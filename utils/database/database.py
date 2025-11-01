@@ -69,8 +69,8 @@ async def ensure_indexes():
 # ---------------- CRUD HELPERS ---------------- #
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
                            quality: str = None, lang: list = None, print_type: str = None,
-                           season: int = None, episode: int = None, caption: str = None,
-                           link: str = None):
+                           season: int = None, episode: int = None, codec: str = None,
+                           caption: str = None, link: str = None):
     """
     Save one movie document.
     """
@@ -84,6 +84,7 @@ async def save_movie_async(chat_id: int, title: str = None, year: int = None,
             "print": print_type,
             "season": int(season) if season else None,
             "episode": int(episode) if episode else None,
+            "codec": codec, 
             "caption": caption,
             "link": link
         }
