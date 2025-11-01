@@ -27,10 +27,12 @@ def extract_details(caption: str):
     lang = None
     if lang_match:
         raw_lang = lang_match.group(1)
-        langs = re.split(r"[+,/&\-]", raw_lang)
+        # remove extra characters like quotes and brackets
+        raw_lang = re.sub(r"['\"\[\]]", "", raw_lang)
+        langs = re.split(r"[+,/&]", raw_lang)
         langs = [x.strip().capitalize() for x in langs if x.strip()]
         lang = ", ".join(sorted(set(langs)))
-
+        
     # --- Season Detection ---
     seasons = data.get("seasons", [])
     season = seasons[0] if seasons else None
