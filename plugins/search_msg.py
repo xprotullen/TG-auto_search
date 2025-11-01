@@ -4,9 +4,9 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQ
 from utils.database import get_movies
 from html import escape
 
-CACHE = {}  # (chat_id, query) → {"user_id": int, "data": {...}}
-
+CACHE = {}  # (chat_id, query) → {"user_id": int, "data": {...}, "message_id": int}
 RESULTS_PER_PAGE = 10
+CACHE_LIMIT = 50  # avoid memory overflow
 
 
 @Client.on_message(filters.group & filters.text)
@@ -15,65 +15,65 @@ async def search_movie(client, message):
     chat_id = int(message.chat.id)
 
     if not query or query.startswith(("/", ".", "!", ",")):
-        return  # ignore commands or stickers
+        return
 
-    # Fetch page 1 results
+    # Get results from DB
     search_data = get_movies(chat_id, query, page=1, limit=RESULTS_PER_PAGE)
     movies = search_data["results"]
     total = search_data["total"]
     pages = search_data["pages"]
 
     if not movies:
-        return
+        return await message.reply_text("❌ No results found.")
 
-    # Cache user_id + search data
-    CACHE[(chat_id, query)] = {"user_id": message.from_user.id, "data": search_data}
+    # Maintain limited cache
+    if len(CACHE) > CACHE_LIMIT:
+        CACHE.pop(next(iter(CACHE)))
+
+    CACHE[(chat_id, query)] = {
+        "user_id": message.from_user.id,
+        "data": search_data,
+    }
 
     sent = await send_results(
-        client, message, query, chat_id, 1, movies, total, pages
+        message, query, chat_id, 1, movies, total, pages
     )
 
-    # Store message_id for validation
     CACHE[(chat_id, query)]["message_id"] = sent.id
 
 
-async def send_results(client, message, query, chat_id, page, movies, total, pages, edit=False):
+async def send_results(message, query, chat_id, page, movies, total, pages, edit=False):
     """
-    Send or edit search results message with inline pagination.
+    Send or edit the same message with movie search results.
     """
     text = f"🎬 <b>Results for:</b> <code>{escape(query)}</code>\n"
     text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
 
     for i, movie in enumerate(movies, start=(page - 1) * RESULTS_PER_PAGE + 1):
-        # caption = movie.get("caption") or "No caption"
-        
         title = movie.get("title") or "Unknown"
-        quality = movie.get("quality") or ""
         year = movie.get("year") or ""
+        quality = movie.get("quality") or ""
         print_type = movie.get("print") or ""
         link = movie.get("link") or ""
-        caption = f"{title} {year} {quality} {print_type}"
-            
-        # ✅ Show original caption instead of parsed title
+        caption = f"{title} {year} {quality} {print_type}".strip()
+
         text += f"{i}. <b>{escape(caption)}</b>\n"
         if link:
-            text += f"🔗 Link - {link}\n\n"
+            text += f"🔗 <a href='{escape(link)}'>Link</a>\n\n"
 
-    # ✅ Pagination buttons only if total > RESULTS_PER_PAGE
+    # Pagination buttons
     buttons = []
-    if total > RESULTS_PER_PAGE:
-        row = []
-        if page > 1:
-            row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page:{chat_id}:{query}:{page-1}"))
-        if page < pages:
-            row.append(InlineKeyboardButton("Next ➡️", callback_data=f"page:{chat_id}:{query}:{page+1}"))
-        if row:
-            buttons.append(row)
+    row = []
+    if page > 1:
+        row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page|{chat_id}|{query}|{page-1}"))
+    if page < pages:
+        row.append(InlineKeyboardButton("Next ➡️", callback_data=f"page|{chat_id}|{query}|{page+1}"))
+    if row:
+        buttons.append(row)
 
     markup = InlineKeyboardMarkup(buttons) if buttons else None
 
     if edit:
-        # Edit same message
         return await message.edit_text(
             text,
             reply_markup=markup,
@@ -81,7 +81,6 @@ async def send_results(client, message, query, chat_id, page, movies, total, pag
             parse_mode=enums.ParseMode.HTML
         )
     else:
-        # Send new message
         return await message.reply_text(
             text,
             reply_markup=markup,
@@ -90,29 +89,31 @@ async def send_results(client, message, query, chat_id, page, movies, total, pag
         )
 
 
-@Client.on_callback_query(filters.regex(r"^page:"))
+@Client.on_callback_query(filters.regex(r"^page\|"))
 async def pagination_handler(client, query: CallbackQuery):
-    """
-    Handle pagination navigation — only the requester can use buttons.
-    """
-    _, chat_id, text, page = query.data.split(":")
-    chat_id = int(chat_id)
-    page = int(page)
+    try:
+        _, chat_id, search_query, page = query.data.split("|", 3)
+        chat_id = int(chat_id)
+        page = int(page)
+    except Exception:
+        return await query.answer("⚠️ Invalid data.", show_alert=True)
 
-    cached = CACHE.get((chat_id, text))
+    cached = CACHE.get((chat_id, search_query))
     if not cached:
         return await query.answer("⚠️ Data expired, please search again.", show_alert=True)
 
-    # ✅ Restrict button use to same user only
-    user_id = cached["user_id"]
-    if query.from_user.id != user_id:
+    # Restrict to same user
+    if query.from_user.id != cached["user_id"]:
         return await query.answer("❌ You didn’t request this search!", show_alert=True)
 
-    # Get fresh page from DB for accuracy
-    data = get_movies(chat_id, text, page=page, limit=RESULTS_PER_PAGE)
+    # Get new page
+    data = get_movies(chat_id, search_query, page=page, limit=RESULTS_PER_PAGE)
     movies = data["results"]
     total = data["total"]
     pages = data["pages"]
 
-    await query.answer()  # remove loading spinner
-    await send_results(client, query.message, text, chat_id, page, movies, total, pages, edit=True)
+    if not movies:
+        return await query.answer("⚠️ No more results.", show_alert=True)
+
+    await query.answer()
+    await send_results(query.message, search_query, chat_id, page, movies, total, pages, edit=True)
