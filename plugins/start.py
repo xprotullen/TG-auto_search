@@ -31,14 +31,22 @@ async def index_chat(client, message):
     source_chat_id = int(parts[2])
     user_id = message.from_user.id
 
-    # ✅ Check if bot is admin in target group
     try:
-        member = await client.get_chat_member(target_chat_id, "me")
-        if member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+        bot_member = await client.get_chat_member(target_chat_id, "me")
+        if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
             return await message.reply_text("❌ Bot must be admin in target chat!")
     except Exception as e:
-        return await message.reply_text(f"❌ Can't verify admin in {target_chat_id}: {e}")
+        return await message.reply_text(f"❌ Can't verify bot admin in {target_chat_id}: {e}")
 
+    # ✅ Check if USER is admin in target group
+    try:
+        user_member = await client.get_chat_member(target_chat_id, user_id)
+        if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+            return await message.reply_text("❌ You must be admin in target chat to start indexing!")
+    except Exception as e:
+        return await message.reply_text(f"❌ Can't verify your admin rights: {e}")
+
+    # ✅ Validate source chat
     try:
         await client.get_chat(source_chat_id)
     except Exception as e:
