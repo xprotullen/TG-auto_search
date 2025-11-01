@@ -15,66 +15,81 @@ rdb = redis.Redis(
     decode_responses=True
 )
 
-CACHE_TTL = 3600  # 1 hour
-RESULTS_PER_PAGE = 10
+CACHE_TTL = 3600         # Cache for 1 hour
+RESULTS_PER_PAGE = 10    # Results per page
+MAX_RESULTS = 200        # Limit total stored per search
 
 
-def make_page_key(chat_id: int, query: str, page: int) -> str:
-    """Unique key for Redis cache"""
-    raw = f"{chat_id}:{query}:{page}"
-    return "movie_cache:" + hashlib.md5(raw.encode()).hexdigest()
+# ---------------- UTILITIES ---------------- #
+def make_cache_key(chat_id: int, query: str) -> str:
+    """Unique Redis key for a user's query."""
+    raw = f"{chat_id}:{query.strip().lower()}"
+    return "movie_search:" + hashlib.md5(raw.encode()).hexdigest()
 
 
-# ---------------- CACHE HELPERS ---------------- #
-async def get_cached_page(chat_id, query, page):
-    key = make_page_key(chat_id, query, page)
+async def get_cached_results(chat_id: int, query: str):
+    key = make_cache_key(chat_id, query)
     raw = await rdb.get(key)
-    if not raw:
-        return None
-    return json.loads(raw)
+    return json.loads(raw) if raw else None
 
 
-async def set_cached_page(chat_id, query, page, data):
-    key = make_page_key(chat_id, query, page)
-    await rdb.setex(key, CACHE_TTL, json.dumps(data))
+async def set_cached_results(chat_id: int, query: str, results: list):
+    key = make_cache_key(chat_id, query)
+    payload = json.dumps({"results": results, "total": len(results)})
+    await rdb.setex(key, CACHE_TTL, payload)
 
 
-# ---------------- MAIN SEARCH ---------------- #
+# ---------------- SEARCH HANDLER ---------------- #
 @Client.on_message(filters.group & filters.text)
 async def search_movie(client, message):
     query = message.text.strip()
     chat_id = int(message.chat.id)
 
+    # Ignore bot commands or empty queries
     if not query or query.startswith(("/", ".", "!", ",")):
         return
 
-    # 🔍 Try cache first (page 1)
-    cached = await get_cached_page(chat_id, query, 1)
-    if cached:
-        movies, total, pages = (
-            cached["results"], cached["total"], cached["pages"]
-        )
+    # 1️⃣ Try Redis cache
+    cache_data = await get_cached_results(chat_id, query)
+    if cache_data:
+        results = cache_data["results"]
+        total = cache_data["total"]
+        source = "Redis ⚡"
     else:
-        # ❌ Not cached → Fetch from DB
-        search_data = await get_movies(chat_id, query, page=1, limit=RESULTS_PER_PAGE)
-        movies, total, pages = (
-            search_data["results"], search_data["total"], search_data["pages"]
-        )
-        # Save to Redis for next time
-        await set_cached_page(chat_id, query, 1, search_data)
+        # 2️⃣ Fetch from MongoDB (only once)
+        mongo_data = await get_movies(chat_id, query, page=1, limit=MAX_RESULTS)
+        results = mongo_data["results"]
+        total = mongo_data["total"]
 
-    if not movies:
-        return
+        # Store full result set in Redis
+        await set_cached_results(chat_id, query, results)
+        source = "MongoDB 🧩"
 
-    await send_results(message, query, chat_id, 1, movies, total, pages)
+    if not results:
+        return await message.reply_text("❌ No results found.")
+
+    pages = max(1, (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE)
+
+    await send_results(
+        message, query, chat_id, 1, results, total, pages,
+        source=source, edit=False
+    )
 
 
 # ---------------- SEND RESULTS ---------------- #
-async def send_results(message, query, chat_id, page, movies, total, pages, edit=False):
-    text = f"<b>Results for:</b> <code>{escape(query)}</code>\n"
-    text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
+async def send_results(message, query, chat_id, page, all_results, total, pages, source=None, edit=False):
+    start = (page - 1) * RESULTS_PER_PAGE
+    end = start + RESULTS_PER_PAGE
+    movies = all_results[start:end]
 
-    for i, movie in enumerate(movies, start=(page - 1) * RESULTS_PER_PAGE + 1):
+    text = f"<b>Results for:</b> <code>{escape(query)}</code>\n"
+    text += f"📄 Page {page}/{pages} — Total: {total}\n"
+    if source:
+        text += f"⚙️ Source: {source}\n\n"
+    else:
+        text += "\n"
+
+    for i, movie in enumerate(movies, start=start + 1):
         title = movie.get("title") or "Unknown"
         year = movie.get("year")
         quality = movie.get("quality")
@@ -86,20 +101,13 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
         link = movie.get("link")
 
         caption_parts = [title]
-        if year:
-            caption_parts.append(f"({year})")
-        if quality:
-            caption_parts.append(quality)
-        if codec:
-            caption_parts.append(codec)
-        if print_type:
-            caption_parts.append(print_type)
-        if lang:
-            caption_parts.append(lang)
-        if season:
-            caption_parts.append(f"S{str(season).zfill(2)}")
-        if episode:
-            caption_parts.append(f"E{str(episode).zfill(2)}")
+        if year: caption_parts.append(f"({year})")
+        if quality: caption_parts.append(quality)
+        if codec: caption_parts.append(codec)
+        if print_type: caption_parts.append(print_type)
+        if lang: caption_parts.append(lang)
+        if season: caption_parts.append(f"S{str(season).zfill(2)}")
+        if episode: caption_parts.append(f"E{str(episode).zfill(2)}")
 
         caption = " ".join(str(p) for p in caption_parts if p)
         text += f"{i}. <b>{escape(caption)}</b>\n"
@@ -119,14 +127,14 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
     markup = InlineKeyboardMarkup(buttons) if buttons else None
 
     if edit:
-        return await message.edit_text(
+        await message.edit_text(
             text,
             reply_markup=markup,
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.HTML
         )
     else:
-        return await message.reply_text(
+        await message.reply_text(
             text,
             reply_markup=markup,
             disable_web_page_preview=True,
@@ -144,20 +152,17 @@ async def pagination_handler(client, query: CallbackQuery):
     except Exception:
         return await query.answer("⚠️ Invalid data.", show_alert=True)
 
-    # 🔍 Try Redis cache first
-    cached = await get_cached_page(chat_id, search_query, page)
-    if cached:
-        movies, total, pages = (
-            cached["results"], cached["total"], cached["pages"]
-        )
-    else:
-        # ❌ Not cached → Fetch from MongoDB
-        data = await get_movies(chat_id, search_query, page=page, limit=RESULTS_PER_PAGE)
-        movies, total, pages = data["results"], data["total"], data["pages"]
-        await set_cached_page(chat_id, search_query, page, data)
+    # 1️⃣ Fetch cached data (Redis only)
+    cache_data = await get_cached_results(chat_id, search_query)
+    if not cache_data:
+        return await query.answer("⏳ Cache expired! Please search again.", show_alert=True)
 
-    if not movies:
-        return await query.answer("⚠️ No more results.", show_alert=True)
+    all_results = cache_data["results"]
+    total = cache_data["total"]
+    pages = max(1, (len(all_results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE)
+
+    if page < 1 or page > pages:
+        return await query.answer("⚠️ Invalid page.", show_alert=True)
 
     await query.answer()
-    await send_results(query.message, search_query, chat_id, page, movies, total, pages, edit=True)
+    await send_results(query.message, search_query, chat_id, page, all_results, total, pages, edit=True)
