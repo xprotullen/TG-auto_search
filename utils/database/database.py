@@ -94,9 +94,19 @@ async def save_movie_async(chat_id: int, title: str = None, year: int = None,
     """
     try:
         if isinstance(lang, (list, tuple)):
-            lang = [l.strip() for l in lang if l]
+            langs = []
+            for l in lang:
+                if not l:
+                    continue
+                clean = re.sub(r"['\"\[\]\(\)]", "", str(l)).strip()
+                if clean:
+                    langs.append(clean)
+            lang = langs if langs else None
+
         elif isinstance(lang, str):
-            lang = [lang.strip()]
+            clean = re.sub(r"['\"\[\]\(\)]", "", lang).strip()
+            lang = [clean] if clean else None
+
         else:
             lang = None
 
