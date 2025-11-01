@@ -158,9 +158,9 @@ async def index_chat(client, message):
                 continue
 
             msg_caption = (
-                message.caption
-                or getattr(message.video, "file_name", None)
-                or getattr(message.document, "file_name", None)
+                msg.caption
+                or getattr(msg.video, "file_name", None)
+                or getattr(msg.document, "file_name", None)
             )   
             if not msg_caption:
                 unsupported += 1
