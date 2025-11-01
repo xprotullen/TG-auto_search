@@ -45,13 +45,11 @@ async def send_results(client, message, query, chat_id, page, movies, total, pag
     text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
 
     for i, movie in enumerate(movies, start=(page - 1) * RESULTS_PER_PAGE + 1):
-        title = movie.get("title") or "Unknown"
-        quality = movie.get("quality") or ""
-        lang = movie.get("lang") or ""   # ✅ changed from 'language' (as per new DB)
-        year = movie.get("year") or ""
+        caption = movie.get("caption") or "No caption"
         link = movie.get("link") or ""
 
-        text += f"{i}. <b>{escape(title)}</b> ({year}) {quality} {lang}\n"
+        # ✅ Show original caption instead of parsed title
+        text += f"{i}. <b>{escape(caption)}</b>\n"
         if link:
             text += f"🔗 [Link]({link})\n\n"
 
