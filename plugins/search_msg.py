@@ -6,6 +6,8 @@ from html import escape
 
 CACHE = {}  # (chat_id, query) → {"user_id": int, "data": {...}}
 
+RESULTS_PER_PAGE = 10
+
 
 @Client.on_message(filters.group & filters.text)
 async def search_movie(client, message):
@@ -16,7 +18,7 @@ async def search_movie(client, message):
         return  # ignore commands or stickers
 
     # Fetch page 1 results
-    search_data = get_movies(chat_id, query, page=1, limit=10)
+    search_data = get_movies(chat_id, query, page=1, limit=RESULTS_PER_PAGE)
     movies = search_data["results"]
     total = search_data["total"]
     pages = search_data["pages"]
@@ -31,7 +33,7 @@ async def search_movie(client, message):
         client, message, query, chat_id, 1, movies, total, pages
     )
 
-    # Store message_id for validation (optional if you want extra security)
+    # Store message_id for validation
     CACHE[(chat_id, query)]["message_id"] = sent.id
 
 
@@ -42,26 +44,27 @@ async def send_results(client, message, query, chat_id, page, movies, total, pag
     text = f"🎬 <b>Results for:</b> <code>{escape(query)}</code>\n"
     text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
 
-    for i, movie in enumerate(movies, start=(page - 1) * 10 + 1):
+    for i, movie in enumerate(movies, start=(page - 1) * RESULTS_PER_PAGE + 1):
         title = movie.get("title") or "Unknown"
         quality = movie.get("quality") or ""
-        language = movie.get("language") or ""
+        lang = movie.get("lang") or ""   # ✅ changed from 'language' (as per new DB)
         year = movie.get("year") or ""
         link = movie.get("link") or ""
 
-        text += f"{i}. <b>{escape(title)}</b> ({year}) {quality} {language}\n"
+        text += f"{i}. <b>{escape(title)}</b> ({year}) {quality} {lang}\n"
         if link:
             text += f"🔗 [Link]({link})\n\n"
 
-    # Pagination buttons
+    # ✅ Pagination buttons only if total > RESULTS_PER_PAGE
     buttons = []
-    row = []
-    if page > 1:
-        row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page:{chat_id}:{query}:{page-1}"))
-    if page < pages:
-        row.append(InlineKeyboardButton("Next ➡️", callback_data=f"page:{chat_id}:{query}:{page+1}"))
-    if row:
-        buttons.append(row)
+    if total > RESULTS_PER_PAGE:
+        row = []
+        if page > 1:
+            row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page:{chat_id}:{query}:{page-1}"))
+        if page < pages:
+            row.append(InlineKeyboardButton("Next ➡️", callback_data=f"page:{chat_id}:{query}:{page+1}"))
+        if row:
+            buttons.append(row)
 
     markup = InlineKeyboardMarkup(buttons) if buttons else None
 
@@ -101,11 +104,11 @@ async def pagination_handler(client, query: CallbackQuery):
     if query.from_user.id != user_id:
         return await query.answer("❌ You didn’t request this search!", show_alert=True)
 
-    # Get data (fresh fetch from DB for accuracy)
-    data = get_movies(chat_id, text, page=page, limit=10)
+    # Get fresh page from DB for accuracy
+    data = get_movies(chat_id, text, page=page, limit=RESULTS_PER_PAGE)
     movies = data["results"]
     total = data["total"]
     pages = data["pages"]
 
-    await query.answer()  # remove loading state
+    await query.answer()  # remove loading spinner
     await send_results(client, query.message, text, chat_id, page, movies, total, pages, edit=True)
