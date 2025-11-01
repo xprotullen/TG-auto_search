@@ -67,25 +67,15 @@ async def index_chat(client, message):
     except Exception as e:
         return await message.reply_text(f"❌ Userbot can't access source chat: {e}")
 
-    # ✅ Ask skip count
-    ask_msg = await message.reply_text("⏭ Kitne messages skip karne hain? (Reply with number or wait 30s for 0)", quote=True)
-    try:
-        reply_msg = await ask_user_for_reply(client, message.chat.id, user_id, timeout=30)
-        await ask_msg.delete()
-        try:
-            await reply_msg.delete()
-        except Exception:
-            pass
+    # Ask for number of messages to skip
+    s = await message.reply("✏️ Enter number of messages to skip from start:")
+    skip_msg = await bot.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    await s.delete()
 
-        try:
-            skip_count = int((reply_msg.text or "").strip())
-            if skip_count < 0:
-                skip_count = 0
-        except Exception:
-            skip_count = 0
-    except asyncio.TimeoutError:
-        skip_count = 0
-        await ask_msg.edit_text("⚠️ No reply, skip=0 set automatically")
+    try:
+        skip_count = int(skip_msg.text)
+    except Exception:
+        return await message.reply("❌ Invalid number!")
 
     # ✅ Prepare progress
     keyboard = InlineKeyboardMarkup([
@@ -223,29 +213,3 @@ async def delete_indexed_pair(client, message):
         )
     except Exception as e:
         await message.reply_text(f"❌ Error: `{e}`")
-
-
-async def ask_user_for_reply(client, chat_id: int, user_id: int, timeout: int = 30):
-    """
-    Wait for a single message from the same user in the same chat.
-    Returns the Message object or raises asyncio.TimeoutError.
-    """
-    loop = asyncio.get_event_loop()
-    fut = loop.create_future()
-
-    async def _on_message(c, m):
-        if m.chat.id == chat_id and m.from_user.id == user_id and not m.text.startswith("/"):
-            if not fut.done():
-                fut.set_result(m)
-
-    handler = MessageHandler(_on_message, filters.chat(chat_id) & filters.user(user_id))
-    client.add_handler(handler)
-
-    try:
-        msg = await asyncio.wait_for(fut, timeout=timeout)
-        return msg
-    finally:
-        try:
-            client.remove_handler(handler)
-        except Exception:
-            pass
