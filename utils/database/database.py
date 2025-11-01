@@ -66,21 +66,21 @@ async def ensure_indexes():
 
 # ---------------- UTILS ---------------- #
 def _safe_int(value):
-    """Convert string like E01 or '1-12' safely to int. Keeps 'Complete' text."""
+    """Preserve ranges like '1-12' and text like 'Complete'."""
     try:
         if isinstance(value, str):
-            if "complete" in value.lower():
+            val = value.strip()
+            if "complete" in val.lower():
                 return "Complete"
-            value = value.strip().upper().replace("E", "")
-            if "-" in value:
-                value = value.split("-")[0]
-            return int(value)
+            if re.match(r"^\d{1,3}-\d{1,3}$", val):
+                return val  # keep range as string
+            val = val.upper().replace("E", "")
+            return int(val)
         elif isinstance(value, (int, float)):
             return int(value)
         return None
     except Exception:
         return value if isinstance(value, str) else None
-
 
 # ---------------- CRUD HELPERS ---------------- #
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
