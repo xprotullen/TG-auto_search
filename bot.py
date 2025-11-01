@@ -22,8 +22,8 @@ class Wroxen(Client):
         )
         self.LOGGER = LOGGER
 
-    async def start(self):
-        await super().start()
+    async def start(self, *args, **kwargs):
+        await super().start(*args, **kwargs)
         bot_details = await self.get_me()
         self.set_parse_mode(enums.ParseMode.HTML)
         self.LOGGER(__name__).info(
@@ -33,6 +33,6 @@ class Wroxen(Client):
         self.USER, self.USER_ID = await User().start()
        
 
-    async def stop(self, *args):
-        await super().stop()
+    async def stop(self, *args, **kwargs):
+        await super().stop(*args, **kwargs)
         self.LOGGER(__name__).info("Bot stopped. Bye.")
