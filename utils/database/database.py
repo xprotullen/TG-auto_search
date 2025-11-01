@@ -1,6 +1,3 @@
-# database_async.py
-# Fully async MongoDB (motor) database helper — optimized for large datasets (1M+ docs)
-
 import os
 import math
 import re
@@ -17,81 +14,59 @@ MONGO_URL = os.getenv(
     "mongodb+srv://<username>:<password>@cluster.mongodb.net/?retryWrites=true&w=majority"
 )
 DB_NAME = os.getenv("DB_NAME", "MovieBotDB")
-COLLECTION = os.getenv("COLLECTION_NAME", "movies")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "movies")
 
 # ---------------- CLIENT ---------------- #
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
+collection = db[COLLECTION_NAME]
 
 
 # ---------------- INDEX CREATION ---------------- #
 async def ensure_indexes():
-    """
-    Create optimized indexes for search and speed.
-    Run once at startup: await ensure_indexes()
-    """
-    coll = db[COLLECTION]
-
+    """Create optimized text and field indexes for speed."""
     try:
-        # Drop old text indexes (avoid duplicates)
-        async for idx in coll.list_indexes():
-            if "text" in idx.get("name", ""):
-                try:
-                    await coll.drop_index(idx["name"])
-                    logger.info(f"Dropped old text index: {idx['name']}")
-                except Exception:
-                    logger.exception("Failed to drop index %s", idx["name"])
-    except Exception:
-        logger.exception("Failed listing indexes")
-
-    try:
-        # Create fresh text index on title + caption + codec
-        await coll.create_index(
+        await collection.create_index(
             [("title", TEXT), ("caption", TEXT), ("codec", TEXT)],
             name="movie_text_index",
             default_language="english",
             background=True,
-            weights={"title": 5, "caption": 1, "codec": 2}
+            weights={"title": 5, "caption": 1, "codec": 2},
         )
-        logger.info("✅ Created text index: title + caption + codec")
 
-        # Single-field indexes for filtering
-        for field in ["chat_id", "quality", "print", "lang", "season", "episode", "codec"]:
-            await coll.create_index(field, background=True)
+        for field in ["chat_id", "quality", "lang", "print", "season", "episode", "codec"]:
+            await collection.create_index(field, background=True)
 
-        logger.info("✅ Created normal indexes: chat_id, quality, print, lang, season, episode, codec")
+        logger.info("✅ Indexes ensured successfully")
     except Exception:
-        logger.exception("Failed creating indexes")
+        logger.exception("Failed to create indexes")
 
 
-# ---------------- UTILS ---------------- #
+# ---------------- HELPERS ---------------- #
 def _safe_int(value):
-    """Preserve ranges like '1-12' and text like 'Complete'."""
+    """Convert episodes/seasons to proper int or keep valid string."""
     try:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
         if isinstance(value, str):
             val = value.strip()
-            if "complete" in val.lower():
-                return "Complete"
-            # If it's a range like 1-12, keep it as string
-            if re.match(r"^\d{1,3}\s*-\s*\d{1,3}$", val):
-                return val.replace(" ", "")  # clean "1 - 12" -> "1-12"
-            # Normal episode like E01 or 03
-            val = val.upper().replace("E", "")
-            return int(val)
-        elif isinstance(value, (int, float)):
-            return int(value)
+            if re.match(r"^\d+$", val):
+                return int(val)
+            if "-" in val or "complete" in val.lower():
+                return val  # keep as-is for cases like "1-12" or "Complete"
         return None
     except Exception:
-        return value if isinstance(value, str) else None
-        
-# ---------------- CRUD HELPERS ---------------- #
+        return None
+
+
+# ---------------- CRUD ---------------- #
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
                            quality: str = None, lang: str = None, print_type: str = None,
                            season=None, episode=None, codec: str = None,
                            caption: str = None, link: str = None):
-    """
-    Save one movie document.
-    """
+    """Save one movie record."""
     try:
         doc = {
             "chat_id": int(chat_id),
@@ -104,38 +79,36 @@ async def save_movie_async(chat_id: int, title: str = None, year: int = None,
             "episode": _safe_int(episode),
             "codec": codec.strip() if codec else None,
             "caption": caption,
-            "link": link
+            "link": link,
         }
 
-        # Clean None fields for storage efficiency
         clean_doc = {k: v for k, v in doc.items() if v is not None}
-
-        res = await db[COLLECTION].insert_one(clean_doc)
+        result = await collection.insert_one(clean_doc)
         logger.info(f"✅ Movie saved: {title}")
-        return str(res.inserted_id)
+        return str(result.inserted_id)
     except Exception:
-        logger.exception("save_movie_async failed")
+        logger.exception("❌ save_movie_async failed")
         return None
 
 
 async def delete_chat_data_async(chat_id: int):
-    """Delete all documents for a given chat_id."""
+    """Delete all movies of a given chat."""
     try:
-        res = await db[COLLECTION].delete_many({"chat_id": int(chat_id)})
-        logger.info(f"🗑️ Deleted {res.deleted_count} docs for chat {chat_id}")
+        res = await collection.delete_many({"chat_id": int(chat_id)})
+        logger.info(f"🗑️ Deleted {res.deleted_count} docs from chat {chat_id}")
         return res.deleted_count
     except Exception:
-        logger.exception("delete_chat_data_async failed")
+        logger.exception("❌ delete_chat_data_async failed")
         return 0
 
 
 # ---------------- SEARCH ---------------- #
-async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 10):
+async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 100):
     """
-    Optimized hybrid search:
-    - $text index for fast search
-    - regex fallback for flexibility
-    - includes codec, season, episode
+    Smart hybrid search:
+    - Uses $text index when available
+    - Falls back to regex matching for flexibility
+    - Optimized for speed + compatible with Redis cache
     """
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
@@ -143,14 +116,14 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
     query = query.strip()
     words = [w for w in re.split(r"\s+", query) if w]
     skip = (page - 1) * limit
-    coll = db[COLLECTION]
 
-    base_filter = {"chat_id": int(chat_id), "$text": {"$search": query}}
+    text_filter = {"chat_id": int(chat_id), "$text": {"$search": query}}
 
-    and_filters = []
-    for word in words:
-        safe = re.escape(word)
-        and_filters.append({
+    # Fallback regex filters for non-text index fields
+    regex_filters = []
+    for w in words:
+        safe = re.escape(w)
+        regex_filters.append({
             "$or": [
                 {"title": {"$regex": safe, "$options": "i"}},
                 {"quality": {"$regex": safe, "$options": "i"}},
@@ -163,7 +136,8 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
             ]
         })
 
-    final_filter = {"$and": [base_filter] + and_filters} if and_filters else base_filter
+    # Final combined query
+    final_filter = {"$and": [text_filter] + regex_filters} if regex_filters else text_filter
 
     projection = {
         "score": {"$meta": "textScore"},
@@ -173,33 +147,28 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
     }
 
     try:
-        cursor = coll.find(final_filter, projection)\
-                     .sort([("score", {"$meta": "textScore"})])\
-                     .skip(skip)\
-                     .limit(limit)
+        cursor = (
+            collection.find(final_filter, projection)
+            .sort([("score", {"$meta": "textScore"})])
+            .skip(skip)
+            .limit(limit)
+        )
+
         results = await cursor.to_list(length=limit)
-        total = await coll.count_documents(final_filter)
+        total = await collection.count_documents(final_filter)
         pages = math.ceil(total / limit) if total else 1
+
+        logger.info(f"🔍 Found {len(results)} / {total} results for '{query}' in chat {chat_id}")
         return {"results": results, "total": total, "page": page, "pages": pages}
 
     except Exception:
-        logger.exception("get_movies_async primary search failed, using regex fallback")
-        regex_filters = [
-            {"$or": [
-                {"title": {"$regex": re.escape(w), "$options": "i"}},
-                {"quality": {"$regex": re.escape(w), "$options": "i"}},
-                {"lang": {"$regex": re.escape(w), "$options": "i"}},
-                {"print": {"$regex": re.escape(w), "$options": "i"}},
-                {"caption": {"$regex": re.escape(w), "$options": "i"}},
-                {"codec": {"$regex": re.escape(w), "$options": "i"}},
-                {"season": {"$regex": re.escape(w), "$options": "i"}},
-                {"episode": {"$regex": re.escape(w), "$options": "i"}},
-            ]} for w in words
-        ]
+        logger.exception("⚠️ get_movies_async failed, using regex fallback")
+
+        # Regex fallback only
         fallback_filter = {"chat_id": int(chat_id), "$and": regex_filters}
-        cursor = coll.find(fallback_filter).skip(skip).limit(limit)
+        cursor = collection.find(fallback_filter).skip(skip).limit(limit)
         results = await cursor.to_list(length=limit)
-        total = await coll.count_documents(fallback_filter)
+        total = await collection.count_documents(fallback_filter)
         pages = math.ceil(total / limit) if total else 1
         return {"results": results, "total": total, "page": page, "pages": pages}
 
@@ -207,42 +176,32 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
 async def get_movie_by_id_async(movie_id: str):
     """Fetch single movie by ObjectId."""
     try:
-        return await db[COLLECTION].find_one({"_id": ObjectId(movie_id)})
+        return await collection.find_one({"_id": ObjectId(movie_id)})
     except Exception:
         logger.exception("get_movie_by_id_async failed")
         return None
 
 
-# ---------------- INDEXED CHAT MAPPING ---------------- #
+# ---------------- CHAT LINKING (OPTIONAL FEATURE) ---------------- #
 INDEXED_COLL = db["indexed_chats"]
 
-
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
-    """Link one target chat with a source chat."""
     try:
         await INDEXED_COLL.update_one(
             {"target_chat": target_chat, "source_chat": source_chat},
             {"$set": {"target_chat": target_chat, "source_chat": source_chat}},
             upsert=True
         )
-        logger.info(f"Linked target {target_chat} with source {source_chat}")
+        logger.info(f"✅ Linked chat {target_chat} → {source_chat}")
     except Exception:
         logger.exception("mark_indexed_chat_async failed")
 
 
-async def unmark_indexed_chat_async(target_chat: int, source_chat: int):
-    """Remove mapping between target and source."""
-    try:
-        await INDEXED_COLL.delete_one({"target_chat": target_chat, "source_chat": source_chat})
-        logger.info(f"Unlinked target {target_chat} from source {source_chat}")
-    except Exception:
-        logger.exception("unmark_indexed_chat_async failed")
-
-
 async def get_targets_for_source_async(source_chat: int):
-    """Return all target_chat IDs linked to a given source chat."""
     try:
-        docs = await INDEXED_COLL.find({"source_chat": source_chat}, {"target_chat": 1}).to_list(length=None)
+        docs = await INDEXED_COLL.find(
+            {"source_chat": source_chat}, {"target_chat": 1}
+        ).to_list(length=None)
         return [d["target_chat"] for d in docs]
     except Exception:
         logger.exception("get_targets_for_source_async failed")
@@ -250,9 +209,10 @@ async def get_targets_for_source_async(source_chat: int):
 
 
 async def get_sources_for_target_async(target_chat: int):
-    """Return all source_chat IDs linked to a given target chat."""
     try:
-        docs = await INDEXED_COLL.find({"target_chat": target_chat}, {"source_chat": 1}).to_list(length=None)
+        docs = await INDEXED_COLL.find(
+            {"target_chat": target_chat}, {"source_chat": 1}
+        ).to_list(length=None)
         return [d["source_chat"] for d in docs]
     except Exception:
         logger.exception("get_sources_for_target_async failed")
