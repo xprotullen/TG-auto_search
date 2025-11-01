@@ -224,8 +224,14 @@ async def auto_index_new_post(client, message):
         targets = await get_targets_for_source_async(from_chat)
         if not targets:
             return  # not indexed source
-
-        details = extract_details(message.caption or "")
+        msg_caption = (
+            message.caption
+            or getattr(message.video, "file_name", None)
+            or getattr(message.document, "file_name", None)
+        )
+        if not msg_caption:
+            return
+        details = extract_details(msg_caption)
 
         for target_chat in targets:
             await save_movie_async(
