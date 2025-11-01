@@ -2,6 +2,7 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessagesFilter
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.handlers import MessageHandler
 
 from utils.database import (
     save_movie_async,
@@ -191,3 +192,34 @@ async def delete_indexed_pair(client, message):
         )
     except Exception as e:
         await message.reply_text(f"❌ Error: `{e}`")
+
+
+async def ask_user_for_reply(client, chat_id: int, user_id: int, timeout: int = 30):
+    """
+    Ask the user to reply in the same chat and wait for one message from that user.
+    Returns the Message object or raises asyncio.TimeoutError on timeout.
+    This registers a temporary MessageHandler and removes it when done.
+    """
+
+    loop = asyncio.get_event_loop()
+    fut = loop.create_future()
+
+    async def _on_message(c, m):
+        # ensure same chat and same user and it is not a command starting with /
+        if m.chat and m.chat.id == chat_id and m.from_user and m.from_user.id == user_id:
+            # Accept anything (you can add validation here)
+            if not fut.done():
+                fut.set_result(m)
+
+    handler = MessageHandler(_on_message, filters.chat(chat_id) & filters.user(user_id))
+    client.add_handler(handler)
+
+    try:
+        msg = await asyncio.wait_for(fut, timeout=timeout)
+        return msg
+    finally:
+        # cleanup handler even on timeout / exception
+        try:
+            client.remove_handler(handler)
+        except Exception:
+            pass
