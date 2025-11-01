@@ -104,10 +104,18 @@ async def index_chat(client, message):
     errors = 0
 
     try:
-        async for msg in client.USER.search_messages(source_chat_id, filter=MessagesFilter.VIDEO, offset=skip_count):
+        async for msg in client.USER.search_messages(
+            source_chat_id,
+            filter=MessagesFilter.EMPTY,  # Fetch all messages
+            offset=skip_count
+        ):
             if not INDEXING.get(user_id):
                 await progress.edit_text("🚫 Indexing cancelled.")
                 return
+
+            # We only want video or document
+            if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
+                continue
 
             if not msg.caption:
                 continue
