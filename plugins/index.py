@@ -37,32 +37,58 @@ async def index_chat(client, message):
         if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
             return await message.reply_text("❌ Bot must be admin in target chat!")
     except Exception as e:
-        return await message.reply_text(f"❌ Can't verify bot admin in {target_chat_id}: {e}")
+        return await message.reply_text(f"❌ Can't verify bot admin in target chat: {e}")
 
-    # ✅ Check if USER is admin in target group
+    # ✅ Check USER admin in target chat
     try:
         user_member = await client.get_chat_member(target_chat_id, user_id)
         if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
             return await message.reply_text("❌ You must be admin in target chat to start indexing!")
     except Exception as e:
-        return await message.reply_text(f"❌ Can't verify your admin rights: {e}")
+        return await message.reply_text(f"❌ Can't verify your admin rights in target chat: {e}")
 
-    # ✅ Validate source chat
+    # ✅ Check BOT admin in source chat
     try:
-        await client.get_chat(source_chat_id)
+        bot_member_source = await client.get_chat_member(source_chat_id, "me")
+        if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+            return await message.reply_text("❌ Bot must be admin in source chat to fetch messages!")
     except Exception as e:
-        return await message.reply_text(f"❌ Can't access source chat `{source_chat_id}`:\n`{e}`")
+        return await message.reply_text(f"❌ Can't verify bot in source chat: {e}")
+
+    # ✅ Check USERBOT member in source chat
+    try:
+        userbot_member = await client.USER.get_chat_member(source_chat_id, "me")
+        if userbot_member.status not in [
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.OWNER,
+            ChatMemberStatus.MEMBER
+        ]:
+            return await message.reply_text("❌ Userbot must be at least a member in source chat!")
+    except Exception as e:
+        return await message.reply_text(f"❌ Userbot can't access source chat: {e}")
 
     # ✅ Ask skip count
-    ask_msg = await message.reply_text("⏭ Kitne messages skip karne hain? (Reply with number)")
+    ask_msg = await message.reply_text("⏭ Kitne messages skip karne hain? (Reply with number, or wait 30s for 0)", quote=True)
     try:
-        reply = await client.listen(message.chat.id, timeout=30)
-        skip_count = int(reply.text.strip())
+        reply_msg = await ask_user_for_reply(client, message.chat.id, user_id, timeout=30)
+        # optionally delete the prompt and the reply (if you want)
         await ask_msg.delete()
-        await reply.delete()
-    except Exception:
+        try:
+            await reply_msg.delete()
+        except Exception:
+            pass
+
+        # Validate reply: try to parse int
+        text = (reply_msg.text or "").strip()
+        try:
+            skip_count = int(text)
+            if skip_count < 0:
+                skip_count = 0
+        except Exception:
+            skip_count = 0  # fallback if user sent non-int
+    except asyncio.TimeoutError:
         skip_count = 0
-        await ask_msg.edit("⚠️ No reply, skip=0 set automatically")
+        await ask_msg.edit_text("⚠️ No reply, skip=0 set automatically")
 
     # ✅ Prepare progress
     keyboard = InlineKeyboardMarkup([
