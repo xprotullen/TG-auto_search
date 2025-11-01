@@ -86,30 +86,12 @@ def _safe_int(value):
         
 # ---------------- CRUD HELPERS ---------------- #
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
-                           quality: str = None, lang=None, print_type: str = None,
+                           quality: str = None, lang: str = None, print_type: str = None,
                            season=None, episode=None, codec: str = None,
                            caption: str = None, link: str = None):
     """
     Save one movie document.
     """
-    try:
-        if isinstance(lang, (list, tuple)):
-            langs = []
-            for l in lang:
-                if not l:
-                    continue
-                clean = re.sub(r"['\"\[\]\(\)]", "", str(l)).strip()
-                if clean:
-                    langs.append(clean)
-            lang = langs if langs else None
-
-        elif isinstance(lang, str):
-            clean = re.sub(r"['\"\[\]\(\)]", "", lang).strip()
-            lang = [clean] if clean else None
-
-        else:
-            lang = None
-
         doc = {
             "chat_id": int(chat_id),
             "title": title.strip() if title else None,
