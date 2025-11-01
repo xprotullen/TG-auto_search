@@ -65,8 +65,9 @@ def extract_details(caption: str):
     year = data.get("year")
     quality = data.get("resolution")
     codec = data.get("codec")
+    codec = codec.upper() if codec else None
     print_type = data.get("quality") or data.get("source")
-
+    
     return {
         "title": title,
         "year": year,
