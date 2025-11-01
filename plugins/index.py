@@ -3,6 +3,13 @@ from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.handlers import MessageHandler
+from pyrogram.errors import (
+    PeerIdInvalid,
+    ChannelInvalid,
+    ChatAdminRequired,
+    UserNotParticipant,
+    RPCError
+)
 
 from utils.database import (
     save_movie_async,
