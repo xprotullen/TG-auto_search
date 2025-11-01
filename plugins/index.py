@@ -34,39 +34,78 @@ async def index_chat(client, message):
 
     try:
         bot_member = await client.get_chat_member(target_chat_id, "me")
-        if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ Bot must be admin in target chat!")
+    except (PeerIdInvalid, ChannelInvalid):
+        return await message.reply_text("❌ Invalid Target Chat ID! Please check and try again.")
+    except ChatAdminRequired:
+        return await message.reply_text("❌ Bot must be admin to access members in target chat.")
+    except UserNotParticipant:
+        return await message.reply_text("❌ Bot is not a member of the target chat!")
+    except RPCError as e:
+        return await message.reply_text(f"⚠️ Telegram Error (target): {e}")
     except Exception as e:
-        return await message.reply_text(f"❌ Can't verify bot admin in target chat: {e}")
+        return await message.reply_text(f"❌ Unexpected error in target chat: {e}")
+
+    if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+        return await message.reply_text("❌ Bot must be admin in target chat!")
+
 
     # ✅ Check USER admin in target chat
     try:
         user_member = await client.get_chat_member(target_chat_id, user_id)
-        if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ You must be admin in target chat to start indexing!")
+    except (PeerIdInvalid, ChannelInvalid):
+        return await message.reply_text("❌ Invalid Target Chat ID! Please check and try again.")
+    except UserNotParticipant:
+        return await message.reply_text("❌ You are not a member of the target chat!")
+    except ChatAdminRequired:
+        return await message.reply_text("❌ Bot needs admin rights to check your status in target chat.")
+    except RPCError as e:
+        return await message.reply_text(f"⚠️ Telegram Error (target user): {e}")
     except Exception as e:
-        return await message.reply_text(f"❌ Can't verify your admin rights in target chat: {e}")
+        return await message.reply_text(f"❌ Unexpected error checking user in target chat: {e}")
+
+    if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+        return await message.reply_text("❌ You must be admin in target chat to start indexing!")
+
 
     # ✅ Check BOT admin in source chat
     try:
         bot_member_source = await client.get_chat_member(source_chat_id, "me")
-        if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ Bot must be admin in source chat to fetch messages!")
+    except (PeerIdInvalid, ChannelInvalid):
+        return await message.reply_text("❌ Invalid Source Chat ID! Please check and try again.")
+    except ChatAdminRequired:
+        return await message.reply_text("❌ Bot must be admin to fetch messages from source chat.")
+    except UserNotParticipant:
+        return await message.reply_text("❌ Bot is not a member of the source chat!")
+    except RPCError as e:
+        return await message.reply_text(f"⚠️ Telegram Error (source): {e}")
     except Exception as e:
-        return await message.reply_text(f"❌ Can't verify bot in source chat: {e}")
+        return await message.reply_text(f"❌ Unexpected error in source chat: {e}")
+
+    if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+        return await message.reply_text("❌ Bot must be admin in source chat to fetch messages!")
+
 
     # ✅ Check USERBOT member in source chat
     try:
         userbot_member = await client.USER.get_chat_member(source_chat_id, "me")
-        if userbot_member.status not in [
-            ChatMemberStatus.ADMINISTRATOR,
-            ChatMemberStatus.OWNER,
-            ChatMemberStatus.MEMBER
-        ]:
-            return await message.reply_text("❌ Userbot must be at least a member in source chat!")
+    except (PeerIdInvalid, ChannelInvalid):
+        return await message.reply_text("❌ Invalid Source Chat ID! Please check and try again.")
+    except UserNotParticipant:
+        return await message.reply_text("❌ Userbot is not a member of the source chat!")
+    except ChatAdminRequired:
+        return await message.reply_text("❌ Bot needs admin to check Userbot membership in source chat.")
+    except RPCError as e:
+        return await message.reply_text(f"⚠️ Telegram Error (userbot): {e}")
     except Exception as e:
         return await message.reply_text(f"❌ Userbot can't access source chat: {e}")
 
+    if userbot_member.status not in [
+        ChatMemberStatus.ADMINISTRATOR,
+        ChatMemberStatus.OWNER,
+        ChatMemberStatus.MEMBER
+    ]:
+        return await message.reply_text("❌ Userbot must be at least a member in source chat!")    
+        
     if await get_targets_for_source_async(source_chat_id):
         return await message.reply_text(
             f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
