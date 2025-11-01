@@ -66,18 +66,20 @@ async def ensure_indexes():
 
 # ---------------- UTILS ---------------- #
 def _safe_int(value):
-    """Convert string like E01 or '1-12' safely to int."""
+    """Convert string like E01 or '1-12' safely to int. Keeps 'Complete' text."""
     try:
-        if isinstance(value, (list, tuple)):
-            value = value[0]
         if isinstance(value, str):
+            if "complete" in value.lower():
+                return "Complete"
             value = value.strip().upper().replace("E", "")
             if "-" in value:
                 value = value.split("-")[0]
             return int(value)
-        return int(value)
-    except Exception:
+        elif isinstance(value, (int, float)):
+            return int(value)
         return None
+    except Exception:
+        return value if isinstance(value, str) else None
 
 
 # ---------------- CRUD HELPERS ---------------- #
