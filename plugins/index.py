@@ -215,7 +215,7 @@ async def cancel_index_callback(client, callback_query):
 
 
 # ---------------- AUTO INDEX NEW MEDIA ---------------- #
-@Client.on_message(filters.group & filters.channel & (filters.document | filters.video))
+@Client.on_message((filters.group | filters.channel) & (filters.document | filters.video))
 async def auto_index_new_post(client, message):
     """
     When new media posted in indexed source chat → auto-save in all linked targets.
