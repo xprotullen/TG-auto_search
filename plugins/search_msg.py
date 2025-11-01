@@ -45,13 +45,18 @@ async def send_results(client, message, query, chat_id, page, movies, total, pag
     text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
 
     for i, movie in enumerate(movies, start=(page - 1) * RESULTS_PER_PAGE + 1):
-        caption = movie.get("caption") or "No caption"
+        # caption = movie.get("caption") or "No caption"
+        
+        title = movie.get("title") or "Unknown"
+        quality = movie.get("quality") or ""
+        year = movie.get("year") or ""
         link = movie.get("link") or ""
-
+        caption = f"{title, year, quality}"
+            
         # ✅ Show original caption instead of parsed title
         text += f"{i}. <b>{escape(caption)}</b>\n"
         if link:
-            text += f"🔗 [Link]({link})\n\n"
+            text += f"🔗 Link - {link}\n\n"
 
     # ✅ Pagination buttons only if total > RESULTS_PER_PAGE
     buttons = []
