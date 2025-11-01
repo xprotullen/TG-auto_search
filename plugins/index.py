@@ -96,6 +96,7 @@ async def index_chat(client, message):
     errors = 0
 
     try:
+        await mark_indexed_chat_async(target_chat_id, source_chat_id)
         async for msg in client.USER.search_messages(
             source_chat_id,
             filter=MessagesFilter.EMPTY,  # Fetch all messages
@@ -138,11 +139,8 @@ async def index_chat(client, message):
                 errors += 1
                 print(f"⚠️ Skipped: {inner_e}")
 
-        # ✅ Mark mapping
-        await mark_indexed_chat_async(target_chat_id, source_chat_id)
-
         await progress.edit_text(
-            f"✅ Completed!\n📂 Indexed: **{indexed}**\n⚠️ Failed: **{errors}**\n"
+            f"✅ Completed!\n📂 Indexed: <b>{indexed}<\b>\n⚠️ Failed: **{errors}**\n"
             f"Linked `{source_chat_id}` → `{target_chat_id}`"
         )
 
