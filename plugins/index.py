@@ -67,6 +67,11 @@ async def index_chat(client, message):
     except Exception as e:
         return await message.reply_text(f"❌ Userbot can't access source chat: {e}")
 
+    if await get_targets_for_source_async(source_chat_id):
+        return await message.reply_text(
+            f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
+            "To reindex, run `/delete {target_chat_id} {source_chat_id}` first."
+        )
     # Ask for number of messages to skip
     s = await message.reply("✏️ Enter number of messages to skip from start:")
     skip_msg = await bot.listen(chat_id=message.chat.id, user_id=message.from_user.id)
