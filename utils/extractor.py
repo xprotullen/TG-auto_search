@@ -5,12 +5,14 @@ def extract_details(caption: str):
     if not caption or len(caption.strip()) < 2:
         return {}
 
+    # --- Parse using PTT (except lang & quality) ---
     try:
         data = parse_title(caption, translate_languages=True) or {}
     except Exception as e:
         print(f"[PTT Error] {e}")
         data = {}
 
+    # ---------- Manual Language Extraction ----------
     lang_match = re.search(
         r"\[([^\]]*?(?:Hin|Hindi|Tam|Tamil|Tel|Telugu|Eng|English|Kan|Kannada|Mal|Malayalam|Beng|Bengali|Mar|Marathi)[^\]]*?)\]",
         caption,
@@ -19,31 +21,42 @@ def extract_details(caption: str):
     lang = None
     if lang_match:
         raw_lang = lang_match.group(1)
-        # Clean unwanted characters like quotes, brackets, parentheses, extra spaces
-        raw_lang = re.sub(r"['\"\[\]\(\)]", "", raw_lang)
-        raw_lang = raw_lang.strip()
-        langs = re.split(r"[+,/&-]", raw_lang)
+        # remove quotes, brackets, parentheses etc.
+        raw_lang = re.sub(r"['\"\[\]\(\)]", "", raw_lang).strip()
+        langs = re.split(r"[+,/&\-]", raw_lang)
         langs = [x.strip().capitalize() for x in langs if x.strip()]
         lang = ", ".join(sorted(set(langs)))
     if lang:
-        lang = f'[{lang}]'
-        
+        lang = f"[{lang}]"
+
+    # ---------- Manual Quality (Resolution) Extraction ----------
+    quality = None
+    q_match = re.search(
+        r"(2160p|1440p|1080p|720p|480p|360p|4K|8K)", caption, re.IGNORECASE
+    )
+    if q_match:
+        quality = q_match.group(1).upper().replace("P", "p")
+
+    # ---------- Other Fields from PTT ----------
+    title = data.get("title")
+    year = data.get("year")
+    codec = data.get("codec")
+    codec = codec.upper() if codec else None
+    print_type = data.get("quality") or data.get("source")
+
+    # ---------- Season & Episode ----------
     seasons = data.get("seasons", [])
     season = seasons[0] if seasons else None
 
-    episode = None
     episodes = data.get("episodes", [])
+    episode = None
     caption_lower = caption.lower()
 
     if "complete" in caption_lower:
         episode = "Complete"
     elif episodes:
-        if len(episodes) > 1:
-            episode = f"{episodes[0]}-{episodes[-1]}"
-        else:
-            episode = str(episodes[0])
+        episode = f"{episodes[0]}-{episodes[-1]}" if len(episodes) > 1 else str(episodes[0])
     else:
-        # Matches E01, Ep12, Episode 3-10, etc.
         ep_match = re.search(
             r"(?:E|Ep|Episode)\s*(\d{1,3})(?:\s*(?:-|to)\s*(\d{1,3}))?",
             caption,
@@ -52,13 +65,6 @@ def extract_details(caption: str):
         if ep_match:
             start, end = ep_match.groups()
             episode = f"{start}-{end}" if end else start
-
-    title = data.get("title")
-    year = data.get("year")
-    quality = data.get("resolution")
-    codec = data.get("codec")
-    codec = codec.upper() if codec else None
-    print_type = data.get("quality") or data.get("source")
 
     return {
         "title": title,
