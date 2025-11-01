@@ -81,7 +81,7 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
 
         text += f"{i}. <b>{escape(caption)}</b>\n"
         if link:
-            text += f"link - {link}"\n\n"
+            text += f"link - {link}\n\n"
 
     # Pagination buttons
     buttons = []
