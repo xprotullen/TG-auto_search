@@ -1,6 +1,5 @@
 from pymongo import MongoClient
 import os
-from utils import extract_details
 
 # ---------------- CONFIG ---------------- #
 MONGO_URL = os.getenv("MONGO_URL", "mongodb+srv://<username>:<password>@cluster.mongodb.net/")
@@ -10,52 +9,76 @@ client = MongoClient(MONGO_URL)
 db = client[DB_NAME]
 movies_col = db["movies"]
 
-# Create indexes for faster queries
-movies_col.create_index("chat_id")
-movies_col.create_index("title")
-movies_col.create_index("quality")
-movies_col.create_index("language")
-movies_col.create_index("season")
-movies_col.create_index("episode")
+# ---------------- INDEX (for speed) ---------------- #
+# Text index improves search performance across multiple fields
+movies_col.create_index([
+    ("title", "text"),
+    ("quality", "text"),
+    ("language", "text"),
+    ("print", "text"),
+    ("caption", "text")
+])
 
-# ---------------- DATABASE OPS ---------------- #
-def save_movie(chat_id: int, link: str, caption: str):
+# ---------------- FUNCTIONS ---------------- #
+
+def save_movie(chat_id, title, year=None, quality=None, language=None,
+               print_type=None, season=None, episode=None, caption=None, link=None):
     """
-    Extract details from caption and save to DB.
+    Save one movie or episode info to DB.
     """
-    details = extract_details(caption)
-    details.update({"chat_id": chat_id, "link": link})
-    movies_col.insert_one(details)
+    movie_data = {
+        "chat_id": chat_id,
+        "title": title.strip() if title else None,
+        "year": year,
+        "quality": quality,
+        "language": language,
+        "print": print_type,
+        "season": season,
+        "episode": episode,
+        "caption": caption,
+        "link": link
+    }
+    movies_col.insert_one(movie_data)
     return True
+
 
 def delete_chat_data(chat_id: int):
     """
-    Delete all records of a chat.
+    Delete all movies belonging to a specific chat.
     """
     result = movies_col.delete_many({"chat_id": chat_id})
     return result.deleted_count
 
+
 def get_movies(chat_id: int, query: str, page: int = 1, limit: int = 10):
     """
-    Natural search with pagination.
-    Splits query into words and searches across title, quality, language, print, and caption.
+    Advanced natural search with pagination.
+    - Splits query into words
+    - Matches across title, quality, language, print, and caption (case-insensitive)
     """
     if not query:
-        return []
+        return {"results": [], "total": 0, "page": 1, "pages": 1}
 
     words = query.split()
-    regex_filters = [{"$or": [
-        {"title": {"$regex": word, "$options": "i"}},
-        {"quality": {"$regex": word, "$options": "i"}},
-        {"language": {"$regex": word, "$options": "i"}},
-        {"print": {"$regex": word, "$options": "i"}},
-        {"caption": {"$regex": word, "$options": "i"}}
-    ]} for word in words]
+
+    # Build AND filters for all words (each word must match at least one field)
+    regex_filters = [
+        {"$or": [
+            {"title": {"$regex": word, "$options": "i"}},
+            {"quality": {"$regex": word, "$options": "i"}},
+            {"language": {"$regex": word, "$options": "i"}},
+            {"print": {"$regex": word, "$options": "i"}},
+            {"caption": {"$regex": word, "$options": "i"}}
+        ]}
+        for word in words
+    ]
 
     filters = {"chat_id": chat_id, "$and": regex_filters}
 
     skip = (page - 1) * limit
-    results = list(movies_col.find(filters).skip(skip).limit(limit))
+    cursor = movies_col.find(filters).skip(skip).limit(limit)
+
+    results = list(cursor)
     total = movies_col.count_documents(filters)
 
     return {
@@ -64,3 +87,11 @@ def get_movies(chat_id: int, query: str, page: int = 1, limit: int = 10):
         "page": page,
         "pages": (total + limit - 1) // limit
     }
+
+
+def get_movie_by_id(movie_id):
+    """
+    Fetch single movie by its MongoDB _id.
+    """
+    from bson import ObjectId
+    return movies_col.find_one({"_id": ObjectId(movie_id)})
