@@ -1,10 +1,12 @@
 import json
 import hashlib
 from html import escape
+from bson import ObjectId
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from utils.database import get_movies_async as get_movies
 import redis.asyncio as redis
+
 
 # ---------------- REDIS CONFIG ---------------- #
 rdb = redis.Redis(
@@ -17,12 +19,21 @@ rdb = redis.Redis(
 
 CACHE_TTL = 3600         # Cache for 1 hour
 RESULTS_PER_PAGE = 10    # Results per page
-MAX_RESULTS = 200        # Limit total stored per search
+MAX_RESULTS = 200        # Max results stored per search
+
+
+# ---------------- JSON ENCODER (Fix ObjectId) ---------------- #
+class JSONEncoder(json.JSONEncoder):
+    """Make ObjectId JSON serializable."""
+    def default(self, o):
+        if isinstance(o, ObjectId):
+            return str(o)
+        return super().default(o)
 
 
 # ---------------- UTILITIES ---------------- #
 def make_cache_key(chat_id: int, query: str) -> str:
-    """Unique Redis key for a user's query."""
+    """Unique Redis key for user's query."""
     raw = f"{chat_id}:{query.strip().lower()}"
     return "movie_search:" + hashlib.md5(raw.encode()).hexdigest()
 
@@ -34,8 +45,9 @@ async def get_cached_results(chat_id: int, query: str):
 
 
 async def set_cached_results(chat_id: int, query: str, results: list):
+    """Cache search results in Redis with JSON-safe encoding."""
     key = make_cache_key(chat_id, query)
-    payload = json.dumps({"results": results, "total": len(results)})
+    payload = json.dumps({"results": results, "total": len(results)}, cls=JSONEncoder)
     await rdb.setex(key, CACHE_TTL, payload)
 
 
@@ -50,19 +62,19 @@ async def search_movie(client, message):
     if not query or query.startswith(("/", ".", "!", ",")):
         return
 
-    # 1️⃣ Try Redis cache
+    # 1️⃣ Try Redis cache first
     cache_data = await get_cached_results(chat_id, query)
     if cache_data:
         results = cache_data["results"]
         total = cache_data["total"]
         source = "Redis ⚡"
     else:
-        # 2️⃣ Fetch from MongoDB (only once)
+        # 2️⃣ Fetch from MongoDB
         mongo_data = await get_movies(chat_id, query, page=1, limit=MAX_RESULTS)
         results = mongo_data["results"]
         total = mongo_data["total"]
 
-        # Store full result set in Redis
+        # Store results in Redis for fast pagination
         await set_cached_results(chat_id, query, results)
         source = "MongoDB 🧩"
 
@@ -78,7 +90,10 @@ async def search_movie(client, message):
 
 
 # ---------------- SEND RESULTS ---------------- #
-async def send_results(message, query, chat_id, user_id, page, all_results, total, pages, source=None, edit=False):
+async def send_results(
+    message, query, chat_id, user_id, page,
+    all_results, total, pages, source=None, edit=False
+):
     start = (page - 1) * RESULTS_PER_PAGE
     end = start + RESULTS_PER_PAGE
     movies = all_results[start:end]
@@ -158,11 +173,11 @@ async def pagination_handler(client, query: CallbackQuery):
     except Exception:
         return await query.answer("⚠️ Invalid data.", show_alert=True)
 
-    # 🧠 Check: Only the same user can use pagination
+    # 🧠 Allow only the original user
     if query.from_user.id != owner_id:
         return await query.answer("⚠️ Only the original user can use these buttons!", show_alert=True)
 
-    # 1️⃣ Fetch cached data (Redis only)
+    # 1️⃣ Fetch cached data
     cache_data = await get_cached_results(chat_id, search_query)
     if not cache_data:
         return await query.answer("⏳ Cache expired! Please search again.", show_alert=True)
@@ -175,4 +190,6 @@ async def pagination_handler(client, query: CallbackQuery):
         return await query.answer("⚠️ Invalid page.", show_alert=True)
 
     await query.answer()
-    await send_results(query.message, search_query, chat_id, owner_id, page, all_results, total, pages, edit=True)
+    await send_results(
+        query.message, search_query, chat_id, owner_id, page, all_results, total, pages, edit=True
+    )
