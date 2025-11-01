@@ -2,6 +2,7 @@ import logging
 from pyrogram import Client, enums, __version__
 from info import API_HASH, APP_ID, LOGGER, BOT_TOKEN 
 from user import User
+from utils.database import ensure_indexes
 
 class Wroxen(Client):
     USER: User = None
@@ -28,6 +29,7 @@ class Wroxen(Client):
         self.LOGGER(__name__).info(
             f"@{bot_details.username}  started! "
         )
+        await ensure_indexes()
         self.USER, self.USER_ID = await User().start()
        
 
