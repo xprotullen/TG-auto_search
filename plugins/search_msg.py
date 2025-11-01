@@ -50,8 +50,9 @@ async def send_results(client, message, query, chat_id, page, movies, total, pag
         title = movie.get("title") or "Unknown"
         quality = movie.get("quality") or ""
         year = movie.get("year") or ""
+        print_type = movie.get("print") or ""
         link = movie.get("link") or ""
-        caption = f"{title, year, quality}"
+        caption = f"{title} {year} {quality} {print_type}"
             
         # ✅ Show original caption instead of parsed title
         text += f"{i}. <b>{escape(caption)}</b>\n"
