@@ -2,23 +2,15 @@ import re
 from PTT import parse_title
 
 def extract_details(caption: str):
-    """
-    Extracts details from torrent title using Parsett (PTT) + custom regex.
-    Supports: episode ranges (E01-12), 'Complete' detection, codec, etc.
-    Returns: title, year, quality, lang, print, season, episode, codec
-    """
-
     if not caption or len(caption.strip()) < 2:
         return {}
 
-    # --- Parse via PTT ---
     try:
         data = parse_title(caption, translate_languages=True) or {}
     except Exception as e:
         print(f"[PTT Error] {e}")
         data = {}
 
-    # --- Language Extractor ---
     lang_match = re.search(
         r"\[([^\]]*?(?:Hin|Hindi|Tam|Tamil|Tel|Telugu|Eng|English|Kan|Kannada|Mal|Malayalam|Beng|Bengali|Mar|Marathi)[^\]]*?)\]",
         caption,
@@ -27,17 +19,18 @@ def extract_details(caption: str):
     lang = None
     if lang_match:
         raw_lang = lang_match.group(1)
-        # remove extra characters like quotes and brackets
-        raw_lang = re.sub(r"['\"\[\]]", "", raw_lang)
-        langs = re.split(r"[+,/&]", raw_lang)
+        # Clean unwanted characters like quotes, brackets, parentheses, extra spaces
+        raw_lang = re.sub(r"['\"\[\]\(\)]", "", raw_lang)
+        raw_lang = raw_lang.strip()
+        langs = re.split(r"[+,/&-]", raw_lang)
         langs = [x.strip().capitalize() for x in langs if x.strip()]
         lang = ", ".join(sorted(set(langs)))
+    if lang:
+        lang = f'[{lang}]'
         
-    # --- Season Detection ---
     seasons = data.get("seasons", [])
     season = seasons[0] if seasons else None
 
-    # --- Episode Detection (supports range + Complete) ---
     episode = None
     episodes = data.get("episodes", [])
     caption_lower = caption.lower()
@@ -60,14 +53,13 @@ def extract_details(caption: str):
             start, end = ep_match.groups()
             episode = f"{start}-{end}" if end else start
 
-    # --- Collect Other Details ---
     title = data.get("title")
     year = data.get("year")
     quality = data.get("resolution")
     codec = data.get("codec")
     codec = codec.upper() if codec else None
     print_type = data.get("quality") or data.get("source")
-    
+
     return {
         "title": title,
         "year": year,
