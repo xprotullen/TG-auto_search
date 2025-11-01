@@ -139,6 +139,7 @@ async def index_chat(client, message):
     INDEXING[user_id] = True
     indexed = 0
     errors = 0
+    unsupported = 0
 
     try:
         await mark_indexed_chat_async(target_chat_id, source_chat_id)
@@ -153,9 +154,16 @@ async def index_chat(client, message):
 
             # We only want video or document
             if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
+                unsupported += 1
                 continue
 
-            if not msg.caption:
+            msg_caption = (
+                message.caption
+                or getattr(message.video, "file_name", None)
+                or getattr(message.document, "file_name", None)
+            )   
+            if not msg_caption:
+                unsupported += 1
                 continue
 
             try:
@@ -176,7 +184,7 @@ async def index_chat(client, message):
                 if indexed % BATCH_SIZE == 0:
                     await asyncio.sleep(2)
                     await progress.edit_text(
-                        f"📈 Indexed: {indexed}\n⚠️ Failed: {errors}\n"
+                        f"📈 Indexed: {indexed}\nUnsupported: {unsupported}\n⚠️ Failed: {errors}\n"
                         f"From `{source_chat_id}` → `{target_chat_id}`",
                         reply_markup=keyboard
                     )
@@ -185,7 +193,7 @@ async def index_chat(client, message):
                 print(f"⚠️ Skipped: {inner_e}")
 
         await progress.edit_text(
-            f"✅ Completed!\n📂 Indexed: <b>{indexed}<\b>\n⚠️ Failed: **{errors}**\n"
+            f"✅ Completed!\n📂 Indexed: <b>{indexed}<\b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}<\b>\n"
             f"Linked `{source_chat_id}` → `{target_chat_id}`"
         )
 
