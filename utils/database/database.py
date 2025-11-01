@@ -14,14 +14,14 @@ movies_col = db["movies"]
 movies_col.create_index([
     ("title", "text"),
     ("quality", "text"),
-    ("language", "text"),
+    ("lang", "text"),   # ✅ changed field name (was "language")
     ("print", "text"),
     ("caption", "text")
 ])
 
 # ---------------- FUNCTIONS ---------------- #
 
-def save_movie(chat_id, title, year=None, quality=None, language=None,
+def save_movie(chat_id, title, year=None, quality=None, lang=None,
                print_type=None, season=None, episode=None, caption=None, link=None):
     """
     Save one movie or episode info to DB.
@@ -31,7 +31,7 @@ def save_movie(chat_id, title, year=None, quality=None, language=None,
         "title": title.strip() if title else None,
         "year": year,
         "quality": quality,
-        "language": language,
+        "lang": lang,                     # ✅ renamed from 'language'
         "print": print_type,
         "season": season,
         "episode": episode,
@@ -54,7 +54,7 @@ def get_movies(chat_id: int, query: str, page: int = 1, limit: int = 10):
     """
     Advanced natural search with pagination.
     - Splits query into words
-    - Matches across title, quality, language, print, and caption (case-insensitive)
+    - Matches across title, quality, lang, print, and caption (case-insensitive)
     """
     if not query:
         return {"results": [], "total": 0, "page": 1, "pages": 1}
@@ -66,7 +66,7 @@ def get_movies(chat_id: int, query: str, page: int = 1, limit: int = 10):
         {"$or": [
             {"title": {"$regex": word, "$options": "i"}},
             {"quality": {"$regex": word, "$options": "i"}},
-            {"language": {"$regex": word, "$options": "i"}},
+            {"lang": {"$regex": word, "$options": "i"}},      # ✅ changed
             {"print": {"$regex": word, "$options": "i"}},
             {"caption": {"$regex": word, "$options": "i"}}
         ]}
