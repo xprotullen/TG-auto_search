@@ -1,7 +1,7 @@
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.enums import MessagesFilter
-from utils.database import save_movie, delete_chat_data
+from utils.database import save_movie_async, delete_chat_data_async
 from utils import extract_details
 
 BATCH_SIZE = 50  # batch sleep after every 50 inserts
@@ -37,7 +37,7 @@ async def index_chat(client, message):
                 details = extract_details(msg.caption)
 
                 # save entry in Mongo
-                save_movie(
+                await save_movie_async(
                     chat_id=int(chat_id),
                     title=details.get("title"),
                     year=details.get("year"),
@@ -81,7 +81,7 @@ async def delete_chat(client, message):
 
     chat_id = int(parts[1])
     try:
-        deleted = delete_chat_data(chat_id)
+        deleted = await delete_chat_data_async(chat_id)
         if deleted:
             await message.reply_text(f"🗑 Deleted **{deleted}** records from `{chat_id}`.")
         else:
