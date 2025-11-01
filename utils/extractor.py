@@ -30,9 +30,9 @@ def extract_details(caption: str):
 
     # --- Extract other fields from PTT ---
     title = data.get("title")
-    year = data.get("year")
-    quality = data.get("resolution")
-    print_type = data.get("quality") or data.get("source")
+    year = data.get("year") if data.get("year") else None
+    quality = data.get("resolution") if data.get("resolution") else None
+    print_type = data.get("quality") or data.get("source") 
     season = data.get("seasons")[0] if data.get("seasons") else None
     episode = data.get("episodes")[0] if data.get("episodes") else None
 
