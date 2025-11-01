@@ -24,8 +24,8 @@ async def search_movie(client, message):
     pages = search_data["pages"]
 
     if not movies:
-        return await message.reply_text("❌ No results found.")
-
+        return 
+        
     # Maintain limited cache
     if len(CACHE) > CACHE_LIMIT:
         CACHE.pop(next(iter(CACHE)))
@@ -46,7 +46,7 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
     """
     Send or edit the same message with movie search results.
     """
-    text = f"🎬 <b>Results for:</b> <code>{escape(query)}</code>\n"
+    text = f"<b>Results for:</b> <code>{escape(query)}</code>\n"
     text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
 
     for i, movie in enumerate(movies, start=(page - 1) * RESULTS_PER_PAGE + 1):
