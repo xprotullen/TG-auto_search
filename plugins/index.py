@@ -177,6 +177,7 @@ async def index_chat(client, message):
                     print_type=details.get("print"),
                     season=details.get("season"),
                     episode=details.get("episode"),
+                    codec=details.get("codec"),
                     caption=msg.caption,
                     link=msg.link
                 )
@@ -243,6 +244,7 @@ async def auto_index_new_post(client, message):
                 print_type=details.get("print"),
                 season=details.get("season"),
                 episode=details.get("episode"),
+                codec=details.get("codec"),
                 caption=message.caption,
                 link=message.link
             )
