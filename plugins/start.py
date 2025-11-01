@@ -3,7 +3,7 @@ from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessagesFilter
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from utils.database_async import (
+from utils.database import (
     save_movie_async,
     delete_chat_data_async,
     mark_indexed_chat_async,
