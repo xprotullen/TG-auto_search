@@ -39,6 +39,11 @@ async def index_chat(client, message):
     except Exception as e:
         return await message.reply_text(f"❌ Can't verify admin in {target_chat_id}: {e}")
 
+    try:
+        await client.get_chat(source_chat_id)
+    except Exception as e:
+        return await message.reply_text(f"❌ Can't access source chat `{source_chat_id}`:\n`{e}`")
+
     # ✅ Ask skip count
     ask_msg = await message.reply_text("⏭ Kitne messages skip karne hain? (Reply with number)")
     try:
