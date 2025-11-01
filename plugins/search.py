@@ -1,4 +1,3 @@
-import math
 import json
 import hashlib
 from html import escape
@@ -16,43 +15,31 @@ rdb = redis.Redis(
     decode_responses=True
 )
 
-CACHE_TTL = 600  # 10 minutes
+CACHE_TTL = 3600  # 1 hour
 RESULTS_PER_PAGE = 10
 
 
-# ---------------- REDIS CACHE HELPERS ---------------- #
-def make_cache_key(chat_id: int, query: str) -> str:
-    raw = f"{chat_id}:{query}"
-    return hashlib.md5(raw.encode()).hexdigest()
+def make_page_key(chat_id: int, query: str, page: int) -> str:
+    """Unique key for Redis cache"""
+    raw = f"{chat_id}:{query}:{page}"
+    return "movie_cache:" + hashlib.md5(raw.encode()).hexdigest()
 
 
-async def cache_set(chat_id, user_id, query, data, message_id=None):
-    key = make_cache_key(chat_id, query)
-    value = json.dumps({
-        "user_id": user_id,
-        "data": data,
-        "message_id": message_id
-    })
-    await rdb.setex(key, CACHE_TTL, value)
-    return key
-
-
-async def cache_get(chat_id, query):
-    key = make_cache_key(chat_id, query)
+# ---------------- CACHE HELPERS ---------------- #
+async def get_cached_page(chat_id, query, page):
+    key = make_page_key(chat_id, query, page)
     raw = await rdb.get(key)
     if not raw:
         return None
     return json.loads(raw)
 
 
-async def cache_update_message_id(chat_id, query, message_id):
-    cached = await cache_get(chat_id, query)
-    if cached:
-        cached["message_id"] = message_id
-        await cache_set(chat_id, cached["user_id"], query, cached["data"], message_id)
+async def set_cached_page(chat_id, query, page, data):
+    key = make_page_key(chat_id, query, page)
+    await rdb.setex(key, CACHE_TTL, json.dumps(data))
 
 
-# ---------------- MAIN SEARCH HANDLER ---------------- #
+# ---------------- MAIN SEARCH ---------------- #
 @Client.on_message(filters.group & filters.text)
 async def search_movie(client, message):
     query = message.text.strip()
@@ -61,23 +48,25 @@ async def search_movie(client, message):
     if not query or query.startswith(("/", ".", "!", ",")):
         return
 
-    # Get results from DB
-    search_data = await get_movies(chat_id, query, page=1, limit=RESULTS_PER_PAGE)
-    movies = search_data["results"]
-    total = search_data["total"]
-    pages = search_data["pages"]
+    # 🔍 Try cache first (page 1)
+    cached = await get_cached_page(chat_id, query, 1)
+    if cached:
+        movies, total, pages = (
+            cached["results"], cached["total"], cached["pages"]
+        )
+    else:
+        # ❌ Not cached → Fetch from DB
+        search_data = await get_movies(chat_id, query, page=1, limit=RESULTS_PER_PAGE)
+        movies, total, pages = (
+            search_data["results"], search_data["total"], search_data["pages"]
+        )
+        # Save to Redis for next time
+        await set_cached_page(chat_id, query, 1, search_data)
 
     if not movies:
         return
 
-    # Save to Redis cache
-    await cache_set(chat_id, message.from_user.id, query, search_data)
-
-    sent = await send_results(
-        message, query, chat_id, 1, movies, total, pages
-    )
-
-    await cache_update_message_id(chat_id, query, sent.id)
+    await send_results(message, query, chat_id, 1, movies, total, pages)
 
 
 # ---------------- SEND RESULTS ---------------- #
@@ -97,7 +86,6 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
         link = movie.get("link")
 
         caption_parts = [title]
-
         if year:
             caption_parts.append(f"({year})")
         if quality:
@@ -114,7 +102,6 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
             caption_parts.append(f"E{str(episode).zfill(2)}")
 
         caption = " ".join(str(p) for p in caption_parts if p)
-
         text += f"{i}. <b>{escape(caption)}</b>\n"
         if link:
             text += f"<b>Link:</b> {link}\n\n"
@@ -157,19 +144,17 @@ async def pagination_handler(client, query: CallbackQuery):
     except Exception:
         return await query.answer("⚠️ Invalid data.", show_alert=True)
 
-    cached = await cache_get(chat_id, search_query)
-    if not cached:
-        return await query.answer("⚠️ Data expired, please search again.", show_alert=True)
-
-    # Restrict to same user
-    if query.from_user.id != cached["user_id"]:
-        return await query.answer("❌ You didn’t request this search!", show_alert=True)
-
-    # Get new page
-    data = await get_movies(chat_id, search_query, page=page, limit=RESULTS_PER_PAGE)
-    movies = data["results"]
-    total = data["total"]
-    pages = data["pages"]
+    # 🔍 Try Redis cache first
+    cached = await get_cached_page(chat_id, search_query, page)
+    if cached:
+        movies, total, pages = (
+            cached["results"], cached["total"], cached["pages"]
+        )
+    else:
+        # ❌ Not cached → Fetch from MongoDB
+        data = await get_movies(chat_id, search_query, page=page, limit=RESULTS_PER_PAGE)
+        movies, total, pages = data["results"], data["total"], data["pages"]
+        await set_cached_page(chat_id, search_query, page, data)
 
     if not movies:
         return await query.answer("⚠️ No more results.", show_alert=True)
