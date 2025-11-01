@@ -1,6 +1,6 @@
 from pymongo import MongoClient
 import os
-from extractor import extract_details
+from utils import extract_details
 
 # ---------------- CONFIG ---------------- #
 MONGO_URL = os.getenv("MONGO_URL", "mongodb+srv://<username>:<password>@cluster.mongodb.net/")
