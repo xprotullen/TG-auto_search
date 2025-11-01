@@ -1,7 +1,7 @@
 import math
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from utils.database import get_movies
+from utils.database import get_movies_async as get_movies
 from html import escape
 
 CACHE = {}  # (chat_id, query) → {"user_id": int, "data": {...}, "message_id": int}
@@ -18,7 +18,7 @@ async def search_movie(client, message):
         return
 
     # Get results from DB
-    search_data = get_movies(chat_id, query, page=1, limit=RESULTS_PER_PAGE)
+    search_data = await get_movies(chat_id, query, page=1, limit=RESULTS_PER_PAGE)
     movies = search_data["results"]
     total = search_data["total"]
     pages = search_data["pages"]
@@ -107,7 +107,7 @@ async def pagination_handler(client, query: CallbackQuery):
         return await query.answer("❌ You didn’t request this search!", show_alert=True)
 
     # Get new page
-    data = get_movies(chat_id, search_query, page=page, limit=RESULTS_PER_PAGE)
+    data = await get_movies(chat_id, search_query, page=page, limit=RESULTS_PER_PAGE)
     movies = data["results"]
     total = data["total"]
     pages = data["pages"]
