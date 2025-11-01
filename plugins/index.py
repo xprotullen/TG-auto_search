@@ -68,24 +68,21 @@ async def index_chat(client, message):
         return await message.reply_text(f"❌ Userbot can't access source chat: {e}")
 
     # ✅ Ask skip count
-    ask_msg = await message.reply_text("⏭ Kitne messages skip karne hain? (Reply with number, or wait 30s for 0)", quote=True)
+    ask_msg = await message.reply_text("⏭ Kitne messages skip karne hain? (Reply with number or wait 30s for 0)", quote=True)
     try:
         reply_msg = await ask_user_for_reply(client, message.chat.id, user_id, timeout=30)
-        # optionally delete the prompt and the reply (if you want)
         await ask_msg.delete()
         try:
             await reply_msg.delete()
         except Exception:
             pass
 
-        # Validate reply: try to parse int
-        text = (reply_msg.text or "").strip()
         try:
-            skip_count = int(text)
+            skip_count = int((reply_msg.text or "").strip())
             if skip_count < 0:
                 skip_count = 0
         except Exception:
-            skip_count = 0  # fallback if user sent non-int
+            skip_count = 0
     except asyncio.TimeoutError:
         skip_count = 0
         await ask_msg.edit_text("⚠️ No reply, skip=0 set automatically")
@@ -230,18 +227,14 @@ async def delete_indexed_pair(client, message):
 
 async def ask_user_for_reply(client, chat_id: int, user_id: int, timeout: int = 30):
     """
-    Ask the user to reply in the same chat and wait for one message from that user.
-    Returns the Message object or raises asyncio.TimeoutError on timeout.
-    This registers a temporary MessageHandler and removes it when done.
+    Wait for a single message from the same user in the same chat.
+    Returns the Message object or raises asyncio.TimeoutError.
     """
-
     loop = asyncio.get_event_loop()
     fut = loop.create_future()
 
     async def _on_message(c, m):
-        # ensure same chat and same user and it is not a command starting with /
-        if m.chat and m.chat.id == chat_id and m.from_user and m.from_user.id == user_id:
-            # Accept anything (you can add validation here)
+        if m.chat.id == chat_id and m.from_user.id == user_id and not m.text.startswith("/"):
             if not fut.done():
                 fut.set_result(m)
 
@@ -252,7 +245,6 @@ async def ask_user_for_reply(client, chat_id: int, user_id: int, timeout: int = 
         msg = await asyncio.wait_for(fut, timeout=timeout)
         return msg
     finally:
-        # cleanup handler even on timeout / exception
         try:
             client.remove_handler(handler)
         except Exception:
