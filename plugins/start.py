@@ -1,10 +1,8 @@
 from pyrogram import Client, filters
-from pyrogram import Client, filters
 from pyrogram.enums import MessagesFilter
 from utils.database import save_movie, delete_chat_data
-from utils import extract_details
+from utils import extract_details  # ✅ ensure correct import path
 import asyncio
-import re
 
 @Client.on_message(filters.command("index"))
 async def index_chat(client, message):
@@ -33,7 +31,7 @@ async def index_chat(client, message):
                     title=details.get("title"),
                     year=details.get("year"),
                     quality=details.get("quality"),
-                    language=details.get("language"),
+                    lang=details.get("lang"),  # ✅ FIXED here
                     print_type=details.get("print"),
                     season=details.get("season"),
                     episode=details.get("episode"),
@@ -43,11 +41,13 @@ async def index_chat(client, message):
 
                 indexed_count += 1
 
-                # Slow down a little to avoid floodwaits
+                # Slow down to avoid FloodWaits
                 if indexed_count % 50 == 0:
                     await asyncio.sleep(2)
 
-        await message.reply_text(f"✅ Indexing completed!\nTotal: **{indexed_count}** messages indexed.")
+        await message.reply_text(
+            f"✅ Indexing completed!\nTotal: **{indexed_count}** messages indexed."
+        )
 
     except Exception as e:
         await message.reply_text(f"❌ Error: `{e}`", quote=True)
