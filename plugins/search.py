@@ -51,15 +51,37 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
 
     for i, movie in enumerate(movies, start=(page - 1) * RESULTS_PER_PAGE + 1):
         title = movie.get("title") or "Unknown"
-        year = movie.get("year") or ""
-        quality = movie.get("quality") or ""
-        print_type = movie.get("print") or ""
-        link = movie.get("link") or ""
-        caption = f"{title} {year} {quality} {print_type}".strip()
+        year = movie.get("year")
+        quality = movie.get("quality")
+        print_type = movie.get("print")
+        lang = movie.get("lang")
+        season = movie.get("season")
+        episode = movie.get("episode")
+        codec = movie.get("codec")
+        link = movie.get("link")
+        
+        caption_parts = [title]
+
+        if year:
+            caption_parts.append(f"({year})")
+        if quality:
+            caption_parts.append(quality)
+        if codec:
+            caption_parts.append(codec)    
+        if print_type:
+            caption_parts.append(print_type)
+        if lang:
+            caption_parts.append(f"[{lang}]")
+        if season:
+            caption_parts.append(f"S{str(season).zfill(2)}")
+        if episode:
+            caption_parts.append(f"E{str(episode).zfill(2)}")
+
+        caption = " ".join(str(p) for p in caption_parts if p)
 
         text += f"{i}. <b>{escape(caption)}</b>\n"
         if link:
-            text += f"🔗 <a href='{escape(link)}'>Link</a>\n\n"
+            text += f"link - {link}"\n\n"
 
     # Pagination buttons
     buttons = []
