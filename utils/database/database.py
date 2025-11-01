@@ -72,8 +72,10 @@ def _safe_int(value):
             val = value.strip()
             if "complete" in val.lower():
                 return "Complete"
-            if re.match(r"^\d{1,3}-\d{1,3}$", val):
-                return val  # keep range as string
+            # If it's a range like 1-12, keep it as string
+            if re.match(r"^\d{1,3}\s*-\s*\d{1,3}$", val):
+                return val.replace(" ", "")  # clean "1 - 12" -> "1-12"
+            # Normal episode like E01 or 03
             val = val.upper().replace("E", "")
             return int(val)
         elif isinstance(value, (int, float)):
@@ -81,7 +83,7 @@ def _safe_int(value):
         return None
     except Exception:
         return value if isinstance(value, str) else None
-
+        
 # ---------------- CRUD HELPERS ---------------- #
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
                            quality: str = None, lang=None, print_type: str = None,
