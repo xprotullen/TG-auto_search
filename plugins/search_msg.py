@@ -1,7 +1,7 @@
 import math
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from db import get_movies
+from utils.database import get_movies
 from html import escape
 
 RESULTS_PER_PAGE = 10
