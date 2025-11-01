@@ -182,26 +182,35 @@ async def get_movie_by_id_async(movie_id: str):
         return None
 
 
-# ---------------- CHAT LINKING (OPTIONAL FEATURE) ---------------- #
 INDEXED_COLL = db["indexed_chats"]
 
+
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
+    """Link one target chat with a source chat."""
     try:
         await INDEXED_COLL.update_one(
             {"target_chat": target_chat, "source_chat": source_chat},
             {"$set": {"target_chat": target_chat, "source_chat": source_chat}},
             upsert=True
         )
-        logger.info(f"✅ Linked chat {target_chat} → {source_chat}")
+        logger.info(f"Linked target {target_chat} with source {source_chat}")
     except Exception:
         logger.exception("mark_indexed_chat_async failed")
 
 
-async def get_targets_for_source_async(source_chat: int):
+async def unmark_indexed_chat_async(target_chat: int, source_chat: int):
+    """Remove mapping between target and source."""
     try:
-        docs = await INDEXED_COLL.find(
-            {"source_chat": source_chat}, {"target_chat": 1}
-        ).to_list(length=None)
+        await INDEXED_COLL.delete_one({"target_chat": target_chat, "source_chat": source_chat})
+        logger.info(f"Unlinked target {target_chat} from source {source_chat}")
+    except Exception:
+        logger.exception("unmark_indexed_chat_async failed")
+
+
+async def get_targets_for_source_async(source_chat: int):
+    """Return all target_chat IDs linked to a given source chat."""
+    try:
+        docs = await INDEXED_COLL.find({"source_chat": source_chat}, {"target_chat": 1}).to_list(length=None)
         return [d["target_chat"] for d in docs]
     except Exception:
         logger.exception("get_targets_for_source_async failed")
@@ -209,10 +218,9 @@ async def get_targets_for_source_async(source_chat: int):
 
 
 async def get_sources_for_target_async(target_chat: int):
+    """Return all source_chat IDs linked to a given target chat."""
     try:
-        docs = await INDEXED_COLL.find(
-            {"target_chat": target_chat}, {"source_chat": 1}
-        ).to_list(length=None)
+        docs = await INDEXED_COLL.find({"target_chat": target_chat}, {"source_chat": 1}).to_list(length=None)
         return [d["source_chat"] for d in docs]
     except Exception:
         logger.exception("get_sources_for_target_async failed")
