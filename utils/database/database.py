@@ -9,15 +9,23 @@ client = MongoClient(MONGO_URL)
 db = client[DB_NAME]
 movies_col = db["movies"]
 
-# ---------------- INDEX (for speed) ---------------- #
-# Text index improves search performance across multiple fields
+# ---------------- SAFE INDEX CREATION ---------------- #
+# Drop existing text index (if any) to prevent conflict
+for idx in movies_col.list_indexes():
+    if "text" in idx["name"]:
+        movies_col.drop_index(idx["name"])
+
+# Create new text index on updated fields
 movies_col.create_index([
     ("title", "text"),
     ("quality", "text"),
-    ("lang", "text"),   # ✅ changed field name (was "language")
+    ("lang", "text"),  # ✅ now matches your current schema
     ("print", "text"),
     ("caption", "text")
 ])
+
+print("✅ Text index recreated successfully on: title, quality, lang, print, caption")
+
 
 # ---------------- FUNCTIONS ---------------- #
 
@@ -31,7 +39,7 @@ def save_movie(chat_id, title, year=None, quality=None, lang=None,
         "title": title.strip() if title else None,
         "year": year,
         "quality": quality,
-        "lang": lang,                     # ✅ renamed from 'language'
+        "lang": lang,
         "print": print_type,
         "season": season,
         "episode": episode,
@@ -61,12 +69,11 @@ def get_movies(chat_id: int, query: str, page: int = 1, limit: int = 10):
 
     words = query.split()
 
-    # Build AND filters for all words (each word must match at least one field)
     regex_filters = [
         {"$or": [
             {"title": {"$regex": word, "$options": "i"}},
             {"quality": {"$regex": word, "$options": "i"}},
-            {"lang": {"$regex": word, "$options": "i"}},      # ✅ changed
+            {"lang": {"$regex": word, "$options": "i"}},
             {"print": {"$regex": word, "$options": "i"}},
             {"caption": {"$regex": word, "$options": "i"}}
         ]}
