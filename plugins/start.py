@@ -2,12 +2,11 @@ import time
 import humanize
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from utils.database import collection
+from utils.database import collection, ensure_indexes, INDEXED_COLL
 from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
 from .search import rdb  
 from info import AUTHORIZED_USERS
-from utils.database import ensure_indexes
 
 @Client.on_message(filters.command("start") & filters.private)
 async def start_command(client, message):
@@ -50,6 +49,7 @@ async def resetdb_handler(client, message):
         return
 
     try:
+        await INDEXED_COLL.drop_indexes()
         await collection.drop()  # 🧹 full wipe
         await ensure_indexes()   # 🧱 recreate
         await message.reply_text("✅ Database reset successfully.\nIndexes recreated fresh!")
