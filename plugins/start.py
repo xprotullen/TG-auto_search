@@ -1,6 +1,7 @@
 import time
 import asyncio
 from pyrogram import Client, filters, enums
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from utils.database import collection
 from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -13,18 +14,31 @@ async def start_command(client, message):
     if user_id not in AUTHORIZED_USERS:
         return
         
-    await message.reply_text(
-        "👋 <b>Welcome!</b>\n\n"
-        "This bot helps you search and manage movie data from indexed groups.\n\n"
-        "🎬 <b>How to Use:</b>\n"
-        "1️⃣ Add me to your movie group as admin.\n"
-        "2️⃣ Use /index to link source and target chats.\n"
-        "3️⃣ Send any movie name in the group to search instantly.\n\n"
-        "💡 Works only for authorized users.\n\n"
-        "<i>Enjoy your private movie search experience!</i>",
-        parse_mode=enums.ParseMode.HTML
+    text = (
+        "👋 **Welcome to Wroxen Bot!**\n\n"
+        "Here’s how to use me:\n"
+        "━━━━━━━━━━━━━━━\n"
+        "🧩 **1. Index Source Chats:**\n"
+        "Use `/index <target_chat_id> <source_chat_id>`\n"
+        "to link a group with a source channel.\n\n"
+        "🗑 **2. Delete Indexed Data:**\n"
+        "Use `/delete <target_chat_id> <source_chat_id>` to unlink.\n\n"
+        "🔍 **3. Search:**\n"
+        "Simply send a movie name in your group to search.\n\n"
+        "⚙️ **Notes:**\n"
+        "• Bot only works in authorized and linked chats.\n"
+        "• Use `/checkbot` to check MongoDB & Redis status.\n"
+        "• Avoid rapid button clicks to prevent FloodWaits."
     )
 
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/thelx0980")]
+    ])
+    await message.reply_text(
+        text,
+        reply_markup=buttons,
+        disable_web_page_preview=True
+    )
 
 @Client.on_message(filters.command("checkbot") & filters.private)
 async def checkbot_handler(client, message):
