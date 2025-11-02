@@ -5,10 +5,35 @@ from utils.database import collection
 from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
 from .search import rdb  
+from info import AUTHORIZED_USERS
+from pyrogram import Client, filters
+
+@Client.on_message(filters.command("start") & filters.private)
+async def start_command(client, message):
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        return
+        
+    await message.reply_text(
+        "👋 <b>Welcome!</b>\n\n"
+        "This bot helps you search and manage movie data from indexed groups.\n\n"
+        "🎬 <b>How to Use:</b>\n"
+        "1️⃣ Add me to your movie group as admin.\n"
+        "2️⃣ Use /index to link source and target chats.\n"
+        "3️⃣ Send any movie name in the group to search instantly.\n\n"
+        "💡 Works only for authorized users.\n\n"
+        "<i>Enjoy your private movie search experience!</i>",
+        parse_mode=enums.ParseMode.HTML
+    )
+
 
 @Client.on_message(filters.command("checkbot") & filters.private)
 async def checkbot_handler(client, message):
     """Self-diagnostic command to check bot health."""
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        return
+        
     start_time = time.time()
     status_lines = []
 
