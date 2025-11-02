@@ -12,6 +12,7 @@ from utils.database import (
     get_targets_for_source_async
 )
 from utils import extract_details
+from info import AUTHORIZED_USERS
 
 INDEXING = {}
 BATCH_SIZE = 50
@@ -23,6 +24,10 @@ async def index_chat(client, message):
     /index <target_chat_id> <source_chat_id>
     Example: /index -1001234 -1005678
     """
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        return
+        
     parts = message.text.split()
     if len(parts) < 3:
         return await message.reply_text("Usage: `/index target_chat_id source_chat_id`")
@@ -212,6 +217,10 @@ async def delete_indexed_pair(client, message):
     /delete <target_chat_id> <source_chat_id>
     Removes mapping & deletes records for that target.
     """
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        return
+        
     parts = message.text.split()
     if len(parts) < 3:
         return await message.reply_text("Usage: `/delete target_chat_id source_chat_id`")
