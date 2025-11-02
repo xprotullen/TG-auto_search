@@ -57,7 +57,7 @@ async def resetdb_handler(client, message):
 
     try:
         if skip_msg.text.strip().lower() != "confirm":
-            return await reply.reply_text("❌ Reset cancelled.")
+            return await message.reply("❌ Reset cancelled.")
         msg = await reply.reply_text("🧹 Resetting database... please wait.")
         await collection.drop()            
         await INDEXED_COLL.drop_indexes()  
