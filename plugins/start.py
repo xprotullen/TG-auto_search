@@ -1,6 +1,6 @@
 import time
 import asyncio
-from pyrogram import Client, filters
+from pyrogram import Client, filters, enums
 from utils.database import collection
 from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -39,4 +39,4 @@ async def checkbot_handler(client, message):
     status_lines.append(f"⚙️ Response Time: {response_time} ms")
 
     report = "<b>🤖 wroxen Health Report</b>\n\n" + "\n".join(status_lines)
-    await message.reply_text(report, parse_mode="html")
+    await message.reply_text(report, parse_mode=enums.ParseMode.HTML)
