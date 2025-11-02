@@ -125,7 +125,11 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
     try:
         cursor = (
             collection.find(final_filter, projection)
-            .sort([("score", {"$meta": "textScore"})])
+            .sort([
+                ("score", {"$meta": "textScore"}),  # relevance first
+                ("season", 1),                    
+                ("episode", 1)                    
+            ])
             .skip(skip)
             .limit(limit)
         )
@@ -137,27 +141,26 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         logger.info(f"🔍 Found {len(results)} / {total} results for '{query}' in chat {chat_id}")
         return {"results": results, "total": total, "page": page, "pages": pages}
 
-    except Exception:
-        logger.exception("⚠️ get_movies_async failed, using regex fallback")
+    except Exception as e:
+        logger.exception(f"⚠️ get_movies_async failed: {e}, using regex fallback")
 
-        # Regex fallback only
+        # ⚙️ Regex fallback only
         fallback_filter = {"chat_id": int(chat_id), "$and": regex_filters}
-        cursor = collection.find(fallback_filter).skip(skip).limit(limit)
+        cursor = (
+            collection.find(fallback_filter)
+            .sort([
+                ("season", 1),
+                ("episode", 1)
+            ])
+            .skip(skip)
+            .limit(limit)
+        )
         results = await cursor.to_list(length=limit)
         total = await collection.count_documents(fallback_filter)
         pages = math.ceil(total / limit) if total else 1
+
         return {"results": results, "total": total, "page": page, "pages": pages}
-
-
-async def get_movie_by_id_async(movie_id: str):
-    """Fetch single movie by ObjectId."""
-    try:
-        return await collection.find_one({"_id": ObjectId(movie_id)})
-    except Exception:
-        logger.exception("get_movie_by_id_async failed")
-        return None
-
-
+        
 INDEXED_COLL = db["indexed_chats"]
 
 
