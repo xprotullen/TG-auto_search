@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
+INDEXED_COLL = db["indexed_chats"]
 
 async def ensure_indexes():
     try:
@@ -27,7 +28,7 @@ async def ensure_indexes():
         for field in ["chat_id", "quality", "lang", "print", "season", "episode", "codec"]:
             await collection.create_index(field, background=True)
 
-        # ✅ New: indexed_chats indexes
+        # ✅ indexed_chats indexes
         await INDEXED_COLL.create_index("target_chat", background=True)
         await INDEXED_COLL.create_index("source_chat", background=True)
         await INDEXED_COLL.create_index(
@@ -35,6 +36,10 @@ async def ensure_indexes():
             unique=True,
             background=True
         )
+
+        logger.info("✅ Indexes ensured successfully")
+    except Exception:
+        logger.exception("Failed to create indexes")
 
         logger.info("✅ Indexes ensured successfully")
     except Exception:
@@ -170,8 +175,6 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
 
         return {"results": results, "total": total, "page": page, "pages": pages}
         
-INDEXED_COLL = db["indexed_chats"]
-
 
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
     """Link one target chat with a source chat."""
