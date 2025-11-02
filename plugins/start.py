@@ -65,12 +65,12 @@ async def checkbot_handler(client, message):
         mongo_data = humanize.naturalsize(mongo_data_raw)
         mongo_index = humanize.naturalsize(mongo_index_raw)
 
-        # Estimate total usage vs Atlas Free Tier (512 MB)
-        atlas_limit = 512 * 1024 * 1024
-        total_used = mongo_storage_raw + mongo_index_raw
+        # ✅ Use only dataSize + indexSize for accurate usage
+        atlas_limit = 512 * 1024 * 1024  # 512 MB for free tier
+        total_used = mongo_data_raw + mongo_index_raw
         used_percent = (total_used / atlas_limit) * 100
-        free_space = atlas_limit - total_used
-        free_space_h = humanize.naturalsize(max(free_space, 0))
+        free_space = max(atlas_limit - total_used, 0)
+        free_space_h = humanize.naturalsize(free_space)
 
         status_lines.append("🟢 MongoDB: Connected")
         status_lines.append(f"   ├─ Collections: {coll_count}")
@@ -78,7 +78,7 @@ async def checkbot_handler(client, message):
         status_lines.append(f"   ├─ Data Size: {mongo_data}")
         status_lines.append(f"   ├─ Storage: {mongo_storage}")
         status_lines.append(f"   ├─ Index: {mongo_index}")
-        status_lines.append(f"   ├─ Used: {humanize.naturalsize(total_used)} / 512 MB ({used_percent:.1f}% used)")
+        status_lines.append(f"   ├─ Used: {humanize.naturalsize(total_used)} / 512 MB ({used_percent:.2f}% used)")
         status_lines.append(f"   └─ Free Space: {free_space_h}")
     except Exception as e:
         status_lines.append(f"🔴 MongoDB: Failed ({e})")
@@ -103,14 +103,14 @@ async def checkbot_handler(client, message):
             plan_note = ""
 
         used_percent = (used_memory_raw / maxmemory_raw) * 100
-        free_mem = maxmemory_raw - used_memory_raw
+        free_mem = max(maxmemory_raw - used_memory_raw, 0)
 
         used_memory = humanize.naturalsize(used_memory_raw)
         max_mem_h = humanize.naturalsize(maxmemory_raw)
-        free_mem_h = humanize.naturalsize(max(free_mem, 0))
+        free_mem_h = humanize.naturalsize(free_mem)
 
         status_lines.append(f"🟢 Redis: Connected{plan_note}")
-        status_lines.append(f"   ├─ Used: {used_memory} / {max_mem_h} ({used_percent:.1f}% used)")
+        status_lines.append(f"   ├─ Used: {used_memory} / {max_mem_h} ({used_percent:.2f}% used)")
         status_lines.append(f"   ├─ Free: {free_mem_h}")
         status_lines.append(f"   ├─ Cached Keys: {total_keys}")
         status_lines.append(f"   └─ Cache Hit Ratio: {hit_ratio:.2f}%")
