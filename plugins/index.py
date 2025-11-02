@@ -2,11 +2,7 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import (
-    PeerIdInvalid,
-    ChannelInvalid,
-    RPCError
-)
+from pyrogram.errors import RPCError
 
 from utils.database import (
     save_movie_async,
@@ -38,8 +34,6 @@ async def index_chat(client, message):
 
     try:
         bot_member = await client.get_chat_member(target_chat_id, "me")
-    except (PeerIdInvalid, ChannelInvalid):
-        return await message.reply_text("❌ Invalid Target Chat ID! Please check and try again.")
     except RPCError as e:
         return await message.reply_text(f"⚠️ Telegram Error (target): {e}")
     except Exception as e:
@@ -49,8 +43,6 @@ async def index_chat(client, message):
 
     try:
         user_member = await client.get_chat_member(target_chat_id, user_id)
-    except (PeerIdInvalid, ChannelInvalid):
-        return await message.reply_text("❌ Invalid Target Chat ID! Please check and try again.")
     except RPCError as e:
         return await message.reply_text(f"⚠️ Telegram Error (target user): {e}")
     except Exception as e:
@@ -60,8 +52,6 @@ async def index_chat(client, message):
 
     try:
         bot_member_source = await client.get_chat_member(source_chat_id, "me")
-    except (PeerIdInvalid, ChannelInvalid):
-        return await message.reply_text("❌ Invalid Source Chat ID! Please check and try again.")
     except RPCError as e:
         return await message.reply_text(f"⚠️ Telegram Error (source): {e}")
     except Exception as e:
@@ -71,8 +61,6 @@ async def index_chat(client, message):
 
     try:
         userbot_member = await client.USER.get_chat_member(source_chat_id, "me")
-    except (PeerIdInvalid, ChannelInvalid):
-        return await message.reply_text("❌ Invalid Source Chat ID! Please check and try again.")
     except RPCError as e:
         return await message.reply_text(f"⚠️ Telegram Error (userbot): {e}")
     except Exception as e:
