@@ -7,5 +7,6 @@ from .database import (
     unmark_indexed_chat_async, 
     get_targets_for_source_async, 
     get_sources_for_target_async,
-    collection
+    collection, 
+    is_chat_linked_async
 )      
