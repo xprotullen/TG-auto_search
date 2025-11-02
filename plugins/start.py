@@ -40,6 +40,20 @@ async def start_command(client, message):
         disable_web_page_preview=True
     )
 
+@Client.on_message(filters.command("resetdb") & filters.private)
+async def resetdb_handler(client, message):
+    """Drop movie collection & recreate fresh indexes."""
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        return
+
+    try:
+        await collection.drop()  # 🧹 full wipe
+        await ensure_indexes()   # 🧱 recreate
+        await message.reply_text("✅ Database reset successfully.\nIndexes recreated fresh!")
+    except Exception as e:
+        await message.reply_text(f"❌ Reset failed: {e}")
+        
 @Client.on_message(filters.command("checkbot") & filters.private)
 async def checkbot_handler(client, message):
     """Self-diagnostic command to check bot health and resource usage."""
