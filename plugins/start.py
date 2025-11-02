@@ -15,17 +15,17 @@ async def start_command(client, message):
         return
         
     text = (
-        "👋 **Welcome to Wroxen Bot!**\n\n"
+        "👋 <b>Welcome to Wroxen Bot!</b>\n\n"
         "Here’s how to use me:\n"
         "━━━━━━━━━━━━━━━\n"
-        "🧩 **1. Index Source Chats:**\n"
+        "🧩 <b>1. Index Source Chats:</b>\n"
         "Use `/index <target_chat_id> <source_chat_id>`\n"
         "to link a group with a source channel.\n\n"
-        "🗑 **2. Delete Indexed Data:**\n"
+        "🗑 <b>2. Delete Indexed Data:</b>\n"
         "Use `/delete <target_chat_id> <source_chat_id>` to unlink.\n\n"
-        "🔍 **3. Search:**\n"
+        "🔍 <b>3. Search:</b>\n"
         "Simply send a movie name in your group to search.\n\n"
-        "⚙️ **Notes:**\n"
+        "⚙️ <b>Notes:</b>\n"
         "• Bot only works in authorized and linked chats.\n"
         "• Use `/checkbot` to check MongoDB & Redis status.\n"
         "• Avoid rapid button clicks to prevent FloodWaits."
