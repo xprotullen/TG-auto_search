@@ -198,7 +198,7 @@ async def pagination_handler(client, query: CallbackQuery):
         await query.answer()
     except FloodWait as e:
         return await query.answer(
-            f"⚠️ Flood control active!\nPlease wait {e.value} seconds before next click.",
+            f"⚠️ Telegram FloodWait active!\nPlease wait {e.value} seconds before next click.",
             show_alert=True
         )
     except Exception as ex:
