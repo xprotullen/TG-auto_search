@@ -50,28 +50,44 @@ async def checkbot_handler(client, message):
     start_time = time.time()
     status_lines = []
 
+    # ========== MongoDB ==========
     try:
         await collection.estimated_document_count()
         stats = await collection.database.command("dbStats")
-        mongo_storage = humanize.naturalsize(stats["storageSize"])
-        mongo_data = humanize.naturalsize(stats["dataSize"])
-        mongo_index = humanize.naturalsize(stats["indexSize"])
+
+        mongo_storage_raw = stats.get("storageSize", 0)
+        mongo_data_raw = stats.get("dataSize", 0)
+        mongo_index_raw = stats.get("indexSize", 0)
         coll_count = stats.get("collections", 0)
         obj_count = stats.get("objects", 0)
+
+        mongo_storage = humanize.naturalsize(mongo_storage_raw)
+        mongo_data = humanize.naturalsize(mongo_data_raw)
+        mongo_index = humanize.naturalsize(mongo_index_raw)
+
+        # Estimate total usage vs Atlas Free Tier (512 MB)
+        atlas_limit = 512 * 1024 * 1024
+        total_used = mongo_storage_raw + mongo_index_raw
+        used_percent = (total_used / atlas_limit) * 100
+        free_space = atlas_limit - total_used
+        free_space_h = humanize.naturalsize(max(free_space, 0))
 
         status_lines.append("🟢 MongoDB: Connected")
         status_lines.append(f"   ├─ Collections: {coll_count}")
         status_lines.append(f"   ├─ Documents: {obj_count}")
         status_lines.append(f"   ├─ Data Size: {mongo_data}")
         status_lines.append(f"   ├─ Storage: {mongo_storage}")
-        status_lines.append(f"   └─ Index: {mongo_index}")
+        status_lines.append(f"   ├─ Index: {mongo_index}")
+        status_lines.append(f"   ├─ Used: {humanize.naturalsize(total_used)} / 512 MB ({used_percent:.1f}% used)")
+        status_lines.append(f"   └─ Free Space: {free_space_h}")
     except Exception as e:
         status_lines.append(f"🔴 MongoDB: Failed ({e})")
 
+    # ========== Redis ==========
     try:
         info = await rdb.info()
-        used_memory = humanize.naturalsize(info.get("used_memory", 0))
-        maxmemory = info.get("maxmemory", 0)
+        used_memory_raw = info.get("used_memory", 0)
+        maxmemory_raw = info.get("maxmemory", 0)
         total_keys = await rdb.dbsize()
 
         hits = info.get("keyspace_hits", 0)
@@ -79,15 +95,23 @@ async def checkbot_handler(client, message):
         total_access = hits + misses
         hit_ratio = (hits / total_access * 100) if total_access > 0 else 0
 
-        if maxmemory:
-            used_percent = (info["used_memory"] / maxmemory) * 100
-            max_mem_h = humanize.naturalsize(maxmemory)
-            status_lines.append(f"🟢 Redis: Connected ({used_percent:.1f}% used)")
-            status_lines.append(f"   ├─ Used: {used_memory} / {max_mem_h}")
+        # If maxmemory not set (0), assume 100 MB free plan
+        if not maxmemory_raw:
+            maxmemory_raw = 100 * 1024 * 1024
+            plan_note = " (estimated free plan)"
         else:
-            status_lines.append("🟢 Redis: Connected")
-            status_lines.append(f"   ├─ Used Memory: {used_memory}")
+            plan_note = ""
 
+        used_percent = (used_memory_raw / maxmemory_raw) * 100
+        free_mem = maxmemory_raw - used_memory_raw
+
+        used_memory = humanize.naturalsize(used_memory_raw)
+        max_mem_h = humanize.naturalsize(maxmemory_raw)
+        free_mem_h = humanize.naturalsize(max(free_mem, 0))
+
+        status_lines.append(f"🟢 Redis: Connected{plan_note}")
+        status_lines.append(f"   ├─ Used: {used_memory} / {max_mem_h} ({used_percent:.1f}% used)")
+        status_lines.append(f"   ├─ Free: {free_mem_h}")
         status_lines.append(f"   ├─ Cached Keys: {total_keys}")
         status_lines.append(f"   └─ Cache Hit Ratio: {hit_ratio:.2f}%")
     except RedisConnectionError:
@@ -95,6 +119,7 @@ async def checkbot_handler(client, message):
     except Exception as e:
         status_lines.append(f"🔴 Redis: Failed ({e})")
 
+    # ========== Mongo Index Check ==========
     try:
         indexes = await collection.index_information()
         if "movie_text_index" in indexes:
@@ -104,6 +129,7 @@ async def checkbot_handler(client, message):
     except Exception as e:
         status_lines.append(f"🔴 Index Check Failed: {e}")
 
+    # ========== Final Report ==========
     response_time = round((time.time() - start_time) * 1000, 2)
     status_lines.append(f"⚙️ Response Time: {response_time} ms")
 
