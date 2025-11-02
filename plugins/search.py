@@ -20,8 +20,7 @@ rdb = redis.Redis(
 
 CACHE_TTL = 3600         # Cache for 1 hour
 RESULTS_PER_PAGE = 10    # Results per page
-MAX_RESULTS = 200        # Max results stored per search
-
+MAX_RESULTS = 500        # Max results stored per search
 
 # ---------------- JSON ENCODER (Fix ObjectId) ---------------- #
 class JSONEncoder(json.JSONEncoder):
