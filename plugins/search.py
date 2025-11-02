@@ -78,8 +78,8 @@ async def search_movie(client, message):
         source = "MongoDB 🧩"
 
     if not results:
-        return await message.reply_text("❌ No results found.")
-
+        return 
+        
     pages = max(1, (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE)
 
     await send_results(
