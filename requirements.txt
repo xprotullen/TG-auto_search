@@ -1,4 +1,4 @@
- pyrofork==2.3.68
+pyrofork==2.3.68
 tgcrypto==1.2.5
 pymongo==4.15.0
 motor==3.7.1
@@ -7,6 +7,7 @@ marshmallow==4.0.1
 dnspython==2.7.0
 parsett==1.7.0
 redis==5.0.1
+humanize
 python-dotenv==1.0.1
 Flask==3.0.0
 gunicorn==21.2.0
