@@ -61,16 +61,16 @@ async def checkbot_handler(client, message):
         coll_count = stats.get("collections", 0)
         obj_count = stats.get("objects", 0)
 
-        mongo_storage = humanize.naturalsize(mongo_storage_raw)
-        mongo_data = humanize.naturalsize(mongo_data_raw)
-        mongo_index = humanize.naturalsize(mongo_index_raw)
+        mongo_storage = humanize.naturalsize(mongo_storage_raw, binary=True)
+        mongo_data = humanize.naturalsize(mongo_data_raw, binary=True)
+        mongo_index = humanize.naturalsize(mongo_index_raw, binary=True)
 
-        # ✅ Use only dataSize + indexSize for accurate usage
-        atlas_limit = 512 * 1024 * 1024  # 512 MB for free tier
+        # ✅ Accurate Atlas free-tier (512 MiB)
+        atlas_limit = 512 * 1024 * 1024  # 512 MiB
         total_used = mongo_data_raw + mongo_index_raw
         used_percent = (total_used / atlas_limit) * 100
         free_space = max(atlas_limit - total_used, 0)
-        free_space_h = humanize.naturalsize(free_space)
+        free_space_h = humanize.naturalsize(free_space, binary=True)
 
         status_lines.append("🟢 MongoDB: Connected")
         status_lines.append(f"   ├─ Collections: {coll_count}")
@@ -78,7 +78,7 @@ async def checkbot_handler(client, message):
         status_lines.append(f"   ├─ Data Size: {mongo_data}")
         status_lines.append(f"   ├─ Storage: {mongo_storage}")
         status_lines.append(f"   ├─ Index: {mongo_index}")
-        status_lines.append(f"   ├─ Used: {humanize.naturalsize(total_used)} / 512 MB ({used_percent:.2f}% used)")
+        status_lines.append(f"   ├─ Used: {humanize.naturalsize(total_used, binary=True)} / 512 MiB ({used_percent:.2f}% used)")
         status_lines.append(f"   └─ Free Space: {free_space_h}")
     except Exception as e:
         status_lines.append(f"🔴 MongoDB: Failed ({e})")
@@ -95,7 +95,7 @@ async def checkbot_handler(client, message):
         total_access = hits + misses
         hit_ratio = (hits / total_access * 100) if total_access > 0 else 0
 
-        # If maxmemory not set (0), assume 100 MB free plan
+        # Assume 100 MiB for free plan if not defined
         if not maxmemory_raw:
             maxmemory_raw = 100 * 1024 * 1024
             plan_note = " (estimated free plan)"
@@ -105,9 +105,9 @@ async def checkbot_handler(client, message):
         used_percent = (used_memory_raw / maxmemory_raw) * 100
         free_mem = max(maxmemory_raw - used_memory_raw, 0)
 
-        used_memory = humanize.naturalsize(used_memory_raw)
-        max_mem_h = humanize.naturalsize(maxmemory_raw)
-        free_mem_h = humanize.naturalsize(free_mem)
+        used_memory = humanize.naturalsize(used_memory_raw, binary=True)
+        max_mem_h = humanize.naturalsize(maxmemory_raw, binary=True)
+        free_mem_h = humanize.naturalsize(free_mem, binary=True)
 
         status_lines.append(f"🟢 Redis: Connected{plan_note}")
         status_lines.append(f"   ├─ Used: {used_memory} / {max_mem_h} ({used_percent:.2f}% used)")
