@@ -5,26 +5,15 @@ import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import TEXT
 from bson import ObjectId
+from info import MONGO_URL, COLLECTION_NAME, DB_NAME
 
 logger = logging.getLogger(__name__)
 
-# ---------------- CONFIG ---------------- #
-MONGO_URL = os.getenv(
-    "MONGO_URL",
-    "mongodb+srv://<username>:<password>@cluster.mongodb.net/?retryWrites=true&w=majority"
-)
-DB_NAME = os.getenv("DB_NAME", "MovieBotDB")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "movies")
-
-# ---------------- CLIENT ---------------- #
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 
-
-# ---------------- INDEX CREATION ---------------- #
 async def ensure_indexes():
-    """Create optimized text and field indexes for speed."""
     try:
         await collection.create_index(
             [("title", TEXT), ("caption", TEXT), ("codec", TEXT)],
@@ -42,7 +31,6 @@ async def ensure_indexes():
         logger.exception("Failed to create indexes")
 
 
-# ---------------- HELPERS ---------------- #
 def _safe_int(value):
     """Convert episodes/seasons to proper int or keep valid string."""
     try:
@@ -60,8 +48,6 @@ def _safe_int(value):
     except Exception:
         return None
 
-
-# ---------------- CRUD ---------------- #
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
                            quality: str = None, lang: str = None, print_type: str = None,
                            season=None, episode=None, codec: str = None,
@@ -101,15 +87,7 @@ async def delete_chat_data_async(chat_id: int):
         logger.exception("❌ delete_chat_data_async failed")
         return 0
 
-
-# ---------------- SEARCH ---------------- #
 async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 100):
-    """
-    Smart hybrid search:
-    - Uses $text index when available
-    - Falls back to regex matching for flexibility
-    - Optimized for speed + compatible with Redis cache
-    """
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
 
@@ -119,7 +97,6 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
 
     text_filter = {"chat_id": int(chat_id), "$text": {"$search": query}}
 
-    # Fallback regex filters for non-text index fields
     regex_filters = []
     for w in words:
         safe = re.escape(w)
@@ -136,7 +113,6 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
             ]
         })
 
-    # Final combined query
     final_filter = {"$and": [text_filter] + regex_filters} if regex_filters else text_filter
 
     projection = {
