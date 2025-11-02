@@ -6,16 +6,13 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from utils.database import get_movies_async as get_movies
 import redis.asyncio as redis
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from info import REDIS_HOST, REDIS_PORT, REDIS_USER, REDIS_PASS
 
 rdb = redis.Redis(
-    host=os.getenv("REDIS_HOST"),
-    port=int(os.getenv("REDIS_PORT")),
-    username=os.getenv("REDIS_USER"),
-    password=os.getenv("REDIS_PASS"),
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    username=REDIS_USER,
+    password=REDIS_PASS,
     decode_responses=True
 )
 
