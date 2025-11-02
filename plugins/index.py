@@ -156,7 +156,7 @@ async def index_chat(client, message):
                 logger.info(f"⚠️ Skipped: {inner_e}")
 
         await progress.edit_text(
-            f"✅ Completed!\n📂 Indexed: <b>{indexed}<\b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}<\b>\n"
+            f"✅ Completed!\n📂 Indexed: <b>{indexed}</b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}</b>\n"
             f"Linked `{source_chat_id}` → `{target_chat_id}`"
         )
 
