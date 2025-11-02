@@ -14,9 +14,29 @@ db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 INDEXED_COLL = db["indexed_chats"]
 
-async def ensure_indexes():
+
+# ----------------------------
+# 🔹 INDEX MANAGEMENT
+# ----------------------------
+async def drop_existing_indexes():
+    """Drop all existing indexes safely."""
     try:
-        # Movie collection indexes
+        existing = await collection.index_information()
+        for name in list(existing.keys()):
+            if name != "_id_":
+                await collection.drop_index(name)
+        existing_idx = await INDEXED_COLL.index_information()
+        for name in list(existing_idx.keys()):
+            if name != "_id_":
+                await INDEXED_COLL.drop_index(name)
+        logger.info("🧹 Dropped all old indexes")
+    except Exception as e:
+        logger.exception(f"Failed to drop indexes: {e}")
+
+
+async def ensure_indexes():
+    """Ensure indexes exist with correct definitions."""
+    try:
         await collection.create_index(
             [("title", TEXT), ("caption", TEXT), ("codec", TEXT)],
             name="movie_text_index",
@@ -28,7 +48,6 @@ async def ensure_indexes():
         for field in ["chat_id", "quality", "lang", "print", "season", "episode", "codec"]:
             await collection.create_index(field, background=True)
 
-        # ✅ indexed_chats indexes
         await INDEXED_COLL.create_index("target_chat", background=True)
         await INDEXED_COLL.create_index("source_chat", background=True)
         await INDEXED_COLL.create_index(
@@ -41,8 +60,22 @@ async def ensure_indexes():
     except Exception:
         logger.exception("Failed to create indexes")
 
+
+async def rebuild_indexes():
+    """Drop and recreate all indexes (clean rebuild)."""
+    try:
+        await drop_existing_indexes()
+        await ensure_indexes()
+        logger.info("🔄 Rebuilt all MongoDB indexes successfully")
+    except Exception as e:
+        logger.exception(f"Rebuild indexes failed: {e}")
+
+
+# ----------------------------
+# 🔹 SAFE CONVERSIONS
+# ----------------------------
 def _safe_int(value):
-    """Convert episodes/seasons to proper int or keep valid string."""
+    """Convert episodes/seasons to int or keep valid string."""
     try:
         if value is None:
             return None
@@ -53,16 +86,20 @@ def _safe_int(value):
             if re.match(r"^\d+$", val):
                 return int(val)
             if "-" in val or "complete" in val.lower():
-                return val  # keep as-is for cases like "1-12" or "Complete"
+                return val  # keep strings like "1-12" or "Complete"
         return None
     except Exception:
         return None
 
+
+# ----------------------------
+# 🔹 MOVIE MANAGEMENT
+# ----------------------------
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
                            quality: str = None, lang: str = None, print_type: str = None,
                            season=None, episode=None, codec: str = None,
                            caption: str = None, link: str = None):
-    """Save one movie record."""
+    """Save a single movie entry."""
     try:
         doc = {
             "chat_id": int(chat_id),
@@ -80,24 +117,31 @@ async def save_movie_async(chat_id: int, title: str = None, year: int = None,
 
         clean_doc = {k: v for k, v in doc.items() if v is not None}
         result = await collection.insert_one(clean_doc)
-        logger.info(f"✅ Movie saved: {title}")
+        logger.info(f"✅ Saved: {title or 'Untitled'} ({chat_id})")
         return str(result.inserted_id)
     except Exception:
         logger.exception("❌ save_movie_async failed")
         return None
 
 
-async def delete_chat_data_async(chat_id: int):
-    """Delete all movies of a given chat."""
+async def delete_chat_data_async(chat_id: int, source_chat: int = None):
+    """Delete all records from a chat, optionally limited by source."""
     try:
-        res = await collection.delete_many({"chat_id": int(chat_id)})
-        logger.info(f"🗑️ Deleted {res.deleted_count} docs from chat {chat_id}")
+        query = {"chat_id": int(chat_id)}
+        count = await collection.count_documents(query)
+        res = await collection.delete_many(query)
+        logger.info(f"🗑️ Deleted {res.deleted_count}/{count} docs for chat {chat_id}")
         return res.deleted_count
-    except Exception:
-        logger.exception("❌ delete_chat_data_async failed")
+    except Exception as e:
+        logger.exception(f"❌ delete_chat_data_async failed: {e}")
         return 0
 
+
+# ----------------------------
+# 🔹 SEARCH / QUERY
+# ----------------------------
 async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 100):
+    """Full-text + regex hybrid search."""
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
 
@@ -124,7 +168,6 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         })
 
     final_filter = {"$and": [text_filter] + regex_filters} if regex_filters else text_filter
-
     projection = {
         "score": {"$meta": "textScore"},
         "title": 1, "year": 1, "quality": 1, "lang": 1,
@@ -136,29 +179,7 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         cursor = (
             collection.find(final_filter, projection)
             .sort([
-                ("score", {"$meta": "textScore"}),  # relevance first
-                ("season", 1),                    
-                ("episode", 1)                    
-            ])
-            .skip(skip)
-            .limit(limit)
-        )
-
-        results = await cursor.to_list(length=limit)
-        total = await collection.count_documents(final_filter)
-        pages = math.ceil(total / limit) if total else 1
-
-        logger.info(f"🔍 Found {len(results)} / {total} results for '{query}' in chat {chat_id}")
-        return {"results": results, "total": total, "page": page, "pages": pages}
-
-    except Exception as e:
-        logger.exception(f"⚠️ get_movies_async failed: {e}, using regex fallback")
-
-        # ⚙️ Regex fallback only
-        fallback_filter = {"chat_id": int(chat_id), "$and": regex_filters}
-        cursor = (
-            collection.find(fallback_filter)
-            .sort([
+                ("score", {"$meta": "textScore"}),
                 ("season", 1),
                 ("episode", 1)
             ])
@@ -166,36 +187,53 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
             .limit(limit)
         )
         results = await cursor.to_list(length=limit)
-        total = await collection.count_documents(fallback_filter)
-        pages = math.ceil(total / limit) if total else 1
-
+        total = await collection.count_documents(final_filter)
+        pages = math.ceil(total / limit) or 1
+        logger.info(f"🔍 Found {len(results)}/{total} results for '{query}' in chat {chat_id}")
         return {"results": results, "total": total, "page": page, "pages": pages}
-        
 
+    except Exception as e:
+        logger.exception(f"⚠️ Text search failed ({e}), fallback to regex")
+        fallback_filter = {"chat_id": int(chat_id), "$and": regex_filters}
+        cursor = (
+            collection.find(fallback_filter)
+            .sort([("season", 1), ("episode", 1)])
+            .skip(skip)
+            .limit(limit)
+        )
+        results = await cursor.to_list(length=limit)
+        total = await collection.count_documents(fallback_filter)
+        pages = math.ceil(total / limit) or 1
+        return {"results": results, "total": total, "page": page, "pages": pages}
+
+
+# ----------------------------
+# 🔹 INDEXED CHAT MAPPING
+# ----------------------------
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
-    """Link one target chat with a source chat."""
+    """Link one target chat with one source."""
     try:
         await INDEXED_COLL.update_one(
             {"target_chat": target_chat, "source_chat": source_chat},
             {"$set": {"target_chat": target_chat, "source_chat": source_chat}},
             upsert=True
         )
-        logger.info(f"Linked target {target_chat} with source {source_chat}")
+        logger.info(f"🔗 Linked target {target_chat} with source {source_chat}")
     except Exception:
         logger.exception("mark_indexed_chat_async failed")
 
 
 async def unmark_indexed_chat_async(target_chat: int, source_chat: int):
-    """Remove mapping between target and source."""
+    """Unlink a target-source pair."""
     try:
         await INDEXED_COLL.delete_one({"target_chat": target_chat, "source_chat": source_chat})
-        logger.info(f"Unlinked target {target_chat} from source {source_chat}")
+        logger.info(f"❌ Unlinked target {target_chat} from source {source_chat}")
     except Exception:
         logger.exception("unmark_indexed_chat_async failed")
 
 
 async def get_targets_for_source_async(source_chat: int):
-    """Return all target_chat IDs linked to a given source chat."""
+    """Get all targets linked to a source."""
     try:
         docs = await INDEXED_COLL.find({"source_chat": source_chat}, {"target_chat": 1}).to_list(length=None)
         return [d["target_chat"] for d in docs]
@@ -205,7 +243,7 @@ async def get_targets_for_source_async(source_chat: int):
 
 
 async def get_sources_for_target_async(target_chat: int):
-    """Return all source_chat IDs linked to a given target chat."""
+    """Get all sources linked to a target."""
     try:
         docs = await INDEXED_COLL.find({"target_chat": target_chat}, {"source_chat": 1}).to_list(length=None)
         return [d["source_chat"] for d in docs]
@@ -215,7 +253,7 @@ async def get_sources_for_target_async(target_chat: int):
 
 
 async def is_chat_linked_async(target_chat: int) -> bool:
-    """Check if the target chat is linked to any source chat."""
+    """Check if target chat is already linked."""
     try:
         doc = await INDEXED_COLL.find_one({"target_chat": target_chat})
         return bool(doc)
