@@ -13,6 +13,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 APP_ID = int(os.getenv("APP_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 USER_SESSION = os.getenv("USER_SESSION")
+AUTHORIZED_USERS = [
+    int(x) for x in os.getenv("AUTHORIZED_USERS", "").split(",") if x.strip().isdigit()
+]
 MONGO_URL = os.getenv("MONGO_URL")
 DB_NAME = os.getenv("DB_NAME", "MovieBotDB")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "movies")
