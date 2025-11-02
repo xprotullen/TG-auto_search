@@ -1,55 +1,110 @@
-import math
+import json
+import hashlib
+from html import escape
+from bson import ObjectId
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from utils.database import get_movies_async as get_movies
-from html import escape
+import redis.asyncio as redis
+from info import REDIS_HOST, REDIS_PORT, REDIS_USERNAME, REDIS_PASSWORD
 
-CACHE = {}  # (chat_id, query) → {"user_id": int, "data": {...}, "message_id": int}
-RESULTS_PER_PAGE = 10
-CACHE_LIMIT = 50  # avoid memory overflow
+rdb = redis.Redis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    username=REDIS_USERNAME,
+    password=REDIS_PASSWORD,
+    decode_responses=True
+)
+
+CACHE_TTL = 3600         # Cache for 1 hour
+RESULTS_PER_PAGE = 10    # Results per page
+MAX_RESULTS = 200        # Max results stored per search
 
 
+# ---------------- JSON ENCODER (Fix ObjectId) ---------------- #
+class JSONEncoder(json.JSONEncoder):
+    """Make ObjectId JSON serializable."""
+    def default(self, o):
+        if isinstance(o, ObjectId):
+            return str(o)
+        return super().default(o)
+
+
+# ---------------- UTILITIES ---------------- #
+def make_cache_key(chat_id: int, query: str) -> str:
+    """Unique Redis key for user's query."""
+    raw = f"{chat_id}:{query.strip().lower()}"
+    return "movie_search:" + hashlib.md5(raw.encode()).hexdigest()
+
+
+async def get_cached_results(chat_id: int, query: str):
+    key = make_cache_key(chat_id, query)
+    raw = await rdb.get(key)
+    return json.loads(raw) if raw else None
+
+
+async def set_cached_results(chat_id: int, query: str, results: list):
+    """Cache search results in Redis with JSON-safe encoding."""
+    key = make_cache_key(chat_id, query)
+    payload = json.dumps({"results": results, "total": len(results)}, cls=JSONEncoder)
+    await rdb.setex(key, CACHE_TTL, payload)
+
+
+# ---------------- SEARCH HANDLER ---------------- #
 @Client.on_message(filters.group & filters.text)
 async def search_movie(client, message):
     query = message.text.strip()
     chat_id = int(message.chat.id)
+    user_id = message.from_user.id
 
+    # Ignore bot commands or empty queries
     if not query or query.startswith(("/", ".", "!", ",")):
         return
 
-    # Get results from DB
-    search_data = await get_movies(chat_id, query, page=1, limit=RESULTS_PER_PAGE)
-    movies = search_data["results"]
-    total = search_data["total"]
-    pages = search_data["pages"]
+    # 1️⃣ Try Redis cache first
+    cache_data = await get_cached_results(chat_id, query)
+    if cache_data:
+        results = cache_data["results"]
+        total = cache_data["total"]
+        source = "Redis ⚡"
+    else:
+        # 2️⃣ Fetch from MongoDB
+        mongo_data = await get_movies(chat_id, query, page=1, limit=MAX_RESULTS)
+        results = mongo_data["results"]
+        total = mongo_data["total"]
 
-    if not movies:
+        # Store results in Redis for fast pagination
+        await set_cached_results(chat_id, query, results)
+        source = "MongoDB 🧩"
+
+    if not results:
         return 
         
-    # Maintain limited cache
-    if len(CACHE) > CACHE_LIMIT:
-        CACHE.pop(next(iter(CACHE)))
+    pages = max(1, (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE)
 
-    CACHE[(chat_id, query)] = {
-        "user_id": message.from_user.id,
-        "data": search_data,
-    }
-
-    sent = await send_results(
-        message, query, chat_id, 1, movies, total, pages
+    await send_results(
+        message, query, chat_id, user_id, 1, results, total, pages,
+        source=source, edit=False
     )
 
-    CACHE[(chat_id, query)]["message_id"] = sent.id
 
+# ---------------- SEND RESULTS ---------------- #
+async def send_results(
+    message, query, chat_id, user_id, page,
+    all_results, total, pages, source=None, edit=False
+):
+    start = (page - 1) * RESULTS_PER_PAGE
+    end = start + RESULTS_PER_PAGE
+    movies = all_results[start:end]
 
-async def send_results(message, query, chat_id, page, movies, total, pages, edit=False):
-    """
-    Send or edit the same message with movie search results.
-    """
     text = f"<b>Results for:</b> <code>{escape(query)}</code>\n"
-    text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
+    text += f"📄 Page {page}/{pages} — Total: {total}\n"
+    if source:
+        text += f"⚙️ Source: {source}\n\n"
+    else:
+        text += "\n"
 
-    for i, movie in enumerate(movies, start=(page - 1) * RESULTS_PER_PAGE + 1):
+    for i, movie in enumerate(movies, start=start + 1):
         title = movie.get("title") or "Unknown"
         year = movie.get("year")
         quality = movie.get("quality")
@@ -59,51 +114,46 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
         episode = movie.get("episode")
         codec = movie.get("codec")
         link = movie.get("link")
-        
-        caption_parts = [title]
 
-        if year:
-            caption_parts.append(f"({year})")
-        if quality:
-            caption_parts.append(quality)
-        if codec:
-            caption_parts.append(codec)    
-        if print_type:
-            caption_parts.append(print_type)
-        if lang:
-            caption_parts.append(lang)
-        if season:
-            caption_parts.append(f"S{str(season).zfill(2)}")
-        if episode:
-            caption_parts.append(f"E{str(episode).zfill(2)}")
+        caption_parts = [title]
+        if year: caption_parts.append(f"({year})")
+        if quality: caption_parts.append(quality)
+        if codec: caption_parts.append(codec)
+        if print_type: caption_parts.append(print_type)
+        if lang: caption_parts.append(lang)
+        if season: caption_parts.append(f"S{str(season).zfill(2)}")
+        if episode: caption_parts.append(f"E{str(episode).zfill(2)}")
 
         caption = " ".join(str(p) for p in caption_parts if p)
-
         text += f"{i}. <b>{escape(caption)}</b>\n"
         if link:
-            text += f"<b>Link</b>: {link}\n\n"
+            text += f"<b>Link:</b> {link}\n\n"
 
     # Pagination buttons
     buttons = []
     row = []
     if page > 1:
-        row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"page|{chat_id}|{query}|{page-1}"))
+        row.append(
+            InlineKeyboardButton("⬅️ Prev", callback_data=f"page|{chat_id}|{query}|{page-1}|{user_id}")
+        )
     if page < pages:
-        row.append(InlineKeyboardButton("Next ➡️", callback_data=f"page|{chat_id}|{query}|{page+1}"))
+        row.append(
+            InlineKeyboardButton("Next ➡️", callback_data=f"page|{chat_id}|{query}|{page+1}|{user_id}")
+        )
     if row:
         buttons.append(row)
 
     markup = InlineKeyboardMarkup(buttons) if buttons else None
 
     if edit:
-        return await message.edit_text(
+        await message.edit_text(
             text,
             reply_markup=markup,
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.HTML
         )
     else:
-        return await message.reply_text(
+        await message.reply_text(
             text,
             reply_markup=markup,
             disable_web_page_preview=True,
@@ -111,31 +161,34 @@ async def send_results(message, query, chat_id, page, movies, total, pages, edit
         )
 
 
+# ---------------- PAGINATION HANDLER ---------------- #
 @Client.on_callback_query(filters.regex(r"^page\|"))
 async def pagination_handler(client, query: CallbackQuery):
     try:
-        _, chat_id, search_query, page = query.data.split("|", 3)
+        _, chat_id, search_query, page, owner_id = query.data.split("|", 4)
         chat_id = int(chat_id)
         page = int(page)
+        owner_id = int(owner_id)
     except Exception:
         return await query.answer("⚠️ Invalid data.", show_alert=True)
 
-    cached = CACHE.get((chat_id, search_query))
-    if not cached:
-        return await query.answer("⚠️ Data expired, please search again.", show_alert=True)
+    # 🧠 Allow only the original user
+    if query.from_user.id != owner_id:
+        return await query.answer("⚠️ Only the original user can use these buttons!", show_alert=True)
 
-    # Restrict to same user
-    if query.from_user.id != cached["user_id"]:
-        return await query.answer("❌ You didn’t request this search!", show_alert=True)
+    # 1️⃣ Fetch cached data
+    cache_data = await get_cached_results(chat_id, search_query)
+    if not cache_data:
+        return await query.answer("⏳ Cache expired! Please search again.", show_alert=True)
 
-    # Get new page
-    data = await get_movies(chat_id, search_query, page=page, limit=RESULTS_PER_PAGE)
-    movies = data["results"]
-    total = data["total"]
-    pages = data["pages"]
+    all_results = cache_data["results"]
+    total = cache_data["total"]
+    pages = max(1, (len(all_results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE)
 
-    if not movies:
-        return await query.answer("⚠️ No more results.", show_alert=True)
+    if page < 1 or page > pages:
+        return await query.answer("⚠️ Invalid page.", show_alert=True)
 
     await query.answer()
-    await send_results(query.message, search_query, chat_id, page, movies, total, pages, edit=True)
+    await send_results(
+        query.message, search_query, chat_id, owner_id, page, all_results, total, pages, edit=True
+    )

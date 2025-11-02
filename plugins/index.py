@@ -1,15 +1,9 @@
 import asyncio
+import logging
 from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import (
-    PeerIdInvalid,
-    ChannelInvalid,
-    ChatAdminRequired,
-    UserNotParticipant,
-    RPCError
-)
-
+from pyrogram.errors import RPCError
 from utils.database import (
     save_movie_async,
     delete_chat_data_async,
@@ -21,9 +15,8 @@ from utils import extract_details
 
 INDEXING = {}
 BATCH_SIZE = 50
+logger = logging.getLogger(__name__)
 
-
-# ---------------- /index COMMAND ---------------- #
 @Client.on_message(filters.command("index"))
 async def index_chat(client, message):
     """
@@ -40,71 +33,37 @@ async def index_chat(client, message):
 
     try:
         bot_member = await client.get_chat_member(target_chat_id, "me")
-    except (PeerIdInvalid, ChannelInvalid):
-        return await message.reply_text("❌ Invalid Target Chat ID! Please check and try again.")
-    except ChatAdminRequired:
-        return await message.reply_text("❌ Bot must be admin to access members in target chat.")
-    except UserNotParticipant:
-        return await message.reply_text("❌ Bot is not a member of the target chat!")
     except RPCError as e:
         return await message.reply_text(f"⚠️ Telegram Error (target): {e}")
     except Exception as e:
         return await message.reply_text(f"❌ Unexpected error in target chat: {e}")
-
     if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
         return await message.reply_text("❌ Bot must be admin in target chat!")
 
-
-    # ✅ Check USER admin in target chat
     try:
         user_member = await client.get_chat_member(target_chat_id, user_id)
-    except (PeerIdInvalid, ChannelInvalid):
-        return await message.reply_text("❌ Invalid Target Chat ID! Please check and try again.")
-    except UserNotParticipant:
-        return await message.reply_text("❌ You are not a member of the target chat!")
-    except ChatAdminRequired:
-        return await message.reply_text("❌ Bot needs admin rights to check your status in target chat.")
     except RPCError as e:
         return await message.reply_text(f"⚠️ Telegram Error (target user): {e}")
     except Exception as e:
         return await message.reply_text(f"❌ Unexpected error checking user in target chat: {e}")
-
     if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
         return await message.reply_text("❌ You must be admin in target chat to start indexing!")
 
-
-    # ✅ Check BOT admin in source chat
     try:
         bot_member_source = await client.get_chat_member(source_chat_id, "me")
-    except (PeerIdInvalid, ChannelInvalid):
-        return await message.reply_text("❌ Invalid Source Chat ID! Please check and try again.")
-    except ChatAdminRequired:
-        return await message.reply_text("❌ Bot must be admin to fetch messages from source chat.")
-    except UserNotParticipant:
-        return await message.reply_text("❌ Bot is not a member of the source chat!")
     except RPCError as e:
         return await message.reply_text(f"⚠️ Telegram Error (source): {e}")
     except Exception as e:
         return await message.reply_text(f"❌ Unexpected error in source chat: {e}")
-
     if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
         return await message.reply_text("❌ Bot must be admin in source chat to fetch messages!")
 
-
-    # ✅ Check USERBOT member in source chat
     try:
         userbot_member = await client.USER.get_chat_member(source_chat_id, "me")
-    except (PeerIdInvalid, ChannelInvalid):
-        return await message.reply_text("❌ Invalid Source Chat ID! Please check and try again.")
-    except UserNotParticipant:
-        return await message.reply_text("❌ Userbot is not a member of the source chat!")
-    except ChatAdminRequired:
-        return await message.reply_text("❌ Bot needs admin to check Userbot membership in source chat.")
     except RPCError as e:
         return await message.reply_text(f"⚠️ Telegram Error (userbot): {e}")
     except Exception as e:
         return await message.reply_text(f"❌ Userbot can't access source chat: {e}")
-
     if userbot_member.status not in [
         ChatMemberStatus.ADMINISTRATOR,
         ChatMemberStatus.OWNER,
@@ -117,7 +76,7 @@ async def index_chat(client, message):
             f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
             f"To reindex, run `/delete {target_chat_id} {source_chat_id}` first."
         )
-    # Ask for number of messages to skip
+        
     s = await message.reply("✏️ Enter number of messages to skip from start:")
     skip_msg = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
     await s.delete()
@@ -127,7 +86,6 @@ async def index_chat(client, message):
     except Exception:
         return await message.reply("❌ Invalid number!")
 
-    # ✅ Prepare progress
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_index_{user_id}")]
     ])
@@ -152,7 +110,6 @@ async def index_chat(client, message):
                 await progress.edit_text("🚫 Indexing cancelled.")
                 return
 
-            # We only want video or document
             if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
                 unsupported += 1
                 continue
@@ -191,7 +148,7 @@ async def index_chat(client, message):
                     )
             except Exception as inner_e:
                 errors += 1
-                print(f"⚠️ Skipped: {inner_e}")
+                logger.info(f"⚠️ Skipped: {inner_e}")
 
         await progress.edit_text(
             f"✅ Completed!\n📂 Indexed: <b>{indexed}<\b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}<\b>\n"
@@ -204,8 +161,6 @@ async def index_chat(client, message):
     finally:
         INDEXING.pop(user_id, None)
 
-
-# ---------------- CANCEL INDEX ---------------- #
 @Client.on_callback_query(filters.regex(r"cancel_index_(\d+)"))
 async def cancel_index_callback(client, callback_query):
     user_id = int(callback_query.matches[0].group(1))
@@ -213,8 +168,6 @@ async def cancel_index_callback(client, callback_query):
     await callback_query.answer("Cancelled!", show_alert=True)
     await callback_query.message.edit_text("🚫 Indexing cancelled.")
 
-
-# ---------------- AUTO INDEX NEW MEDIA ---------------- #
 @Client.on_message((filters.group | filters.channel) & (filters.document | filters.video))
 async def auto_index_new_post(client, message):
     """
@@ -248,13 +201,11 @@ async def auto_index_new_post(client, message):
                 caption=message.caption,
                 link=message.link
             )
-            print(f"✅ Auto-synced new post from {from_chat} → {target_chat}")
+            logger.info(f"✅ Auto-synced new post from {from_chat} → {target_chat}")
 
     except Exception as e:
-        print(f"⚠️ Auto index error: {e}")
+        logger.info(f"⚠️ Auto index error: {e}")
 
-
-# ---------------- /delete COMMAND ---------------- #
 @Client.on_message(filters.command("delete"))
 async def delete_indexed_pair(client, message):
     """
@@ -272,7 +223,7 @@ async def delete_indexed_pair(client, message):
         deleted = await delete_chat_data_async(target_chat_id)
         await unmark_indexed_chat_async(target_chat_id, source_chat_id)
         await message.reply_text(
-            f"🗑 Deleted **{deleted}** records for `{target_chat_id}` "
+            f"🗑 Deleted <b>{deleted}</b> records for `{target_chat_id}` "
             f"and removed link with `{source_chat_id}`"
         )
     except Exception as e:
