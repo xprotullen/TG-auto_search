@@ -55,14 +55,15 @@ async def set_cached_results(chat_id: int, query: str, results: list):
 # ---------------- SEARCH HANDLER ---------------- #
 @Client.on_message(filters.group & filters.text)
 async def search_movie(client, message):
-    query = message.text.strip()
     chat_id = int(message.chat.id)
-    user_id = message.from_user.id
     
     linked = await is_chat_linked_async(chat_id)
     if not linked:
         return
-
+        
+    query = message.text.strip()
+    user_id = message.from_user.id
+           
     if not query or query.startswith(("/", ".", "!", ",")):
         return
 
