@@ -4,7 +4,7 @@ from html import escape
 from bson import ObjectId
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from utils.database import get_movies_async as get_movies
+from utils.database import get_movies_async as get_movies, is_chat_linked_async
 import redis.asyncio as redis
 from info import REDIS_HOST, REDIS_PORT, REDIS_USERNAME, REDIS_PASSWORD
 from pyrogram.errors import FloodWait, MessageNotModified
@@ -58,24 +58,24 @@ async def search_movie(client, message):
     query = message.text.strip()
     chat_id = int(message.chat.id)
     user_id = message.from_user.id
+    
+    linked = await is_chat_linked_async(chat_id)
+    if not linked:
+        return
 
-    # Ignore bot commands or empty queries
     if not query or query.startswith(("/", ".", "!", ",")):
         return
 
-    # 1️⃣ Try Redis cache first
     cache_data = await get_cached_results(chat_id, query)
     if cache_data:
         results = cache_data["results"]
         total = cache_data["total"]
         source = "Redis ⚡"
     else:
-        # 2️⃣ Fetch from MongoDB
         mongo_data = await get_movies(chat_id, query, page=1, limit=MAX_RESULTS)
         results = mongo_data["results"]
         total = mongo_data["total"]
 
-        # Store results in Redis for fast pagination
         await set_cached_results(chat_id, query, results)
         source = "MongoDB 🧩"
 
