@@ -25,6 +25,7 @@ async def start_command(client, message):
         "Use `/delete <target_chat_id> <source_chat_id>` to unlink.\n\n"
         "🔍 <b>3. Search:</b>\n"
         "Simply send a movie name in your group to search.\n\n"
+        "/resetdb - clean database\n\n"
         "⚙️ <b>Notes:</b>\n"
         "• Bot only works in authorized and linked chats.\n"
         "• Use `/checkbot` to check MongoDB & Redis status.\n"
