@@ -1,9 +1,9 @@
 import asyncio
+import logging
 from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import RPCError
-
 from utils.database import (
     save_movie_async,
     delete_chat_data_async,
@@ -15,9 +15,8 @@ from utils import extract_details
 
 INDEXING = {}
 BATCH_SIZE = 50
+logger = logging.getLogger(__name__)
 
-
-# ---------------- /index COMMAND ---------------- #
 @Client.on_message(filters.command("index"))
 async def index_chat(client, message):
     """
@@ -149,7 +148,7 @@ async def index_chat(client, message):
                     )
             except Exception as inner_e:
                 errors += 1
-                print(f"⚠️ Skipped: {inner_e}")
+                logger.info(f"⚠️ Skipped: {inner_e}")
 
         await progress.edit_text(
             f"✅ Completed!\n📂 Indexed: <b>{indexed}<\b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}<\b>\n"
@@ -202,10 +201,10 @@ async def auto_index_new_post(client, message):
                 caption=message.caption,
                 link=message.link
             )
-            print(f"✅ Auto-synced new post from {from_chat} → {target_chat}")
+            logger.info(f"✅ Auto-synced new post from {from_chat} → {target_chat}")
 
     except Exception as e:
-        print(f"⚠️ Auto index error: {e}")
+        logger.info(f"⚠️ Auto index error: {e}")
 
 @Client.on_message(filters.command("delete"))
 async def delete_indexed_pair(client, message):
