@@ -7,6 +7,9 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
 from .search import rdb  
 from info import AUTHORIZED_USERS
+import logging
+
+logger = logging.getLogger(__name__)
 
 @Client.on_message(filters.command("start") & filters.private)
 async def start_command(client, message):
@@ -43,17 +46,27 @@ async def start_command(client, message):
 
 @Client.on_message(filters.command("resetdb") & filters.private)
 async def resetdb_handler(client, message):
-    """Drop movie collection & recreate fresh indexes."""
+    """Drop full movie database only after confirmation."""
     user_id = message.from_user.id
     if user_id not in AUTHORIZED_USERS:
-        return
+        return 
+        
+    s = await message.reply("This will permanently delete all movie data and indexes\n\nType `<code>confirm</code>` to delete")
+    skip_msg = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    await s.delete()
 
     try:
-        await INDEXED_COLL.drop_indexes()
-        await collection.drop()  # 🧹 full wipe
-        await ensure_indexes()   # 🧱 recreate
-        await message.reply_text("✅ Database reset successfully.\nIndexes recreated fresh!")
+        if skip_msg.text.strip().lower() != "confirm":
+            return await reply.reply_text("❌ Reset cancelled.")
+        msg = await reply.reply_text("🧹 Resetting database... please wait.")
+        await collection.drop()            
+        await INDEXED_COLL.drop_indexes()  
+        await ensure_indexes()            
+        await msg.edit_text("✅ Database reset successfully!\nAll data wiped and indexes rebuilt.")
+
+        logger.info("✅ Database reset by user %s", user_id)
     except Exception as e:
+        logger.exception("❌ Database reset failed")
         await message.reply_text(f"❌ Reset failed: {e}")
         
 @Client.on_message(filters.command("checkbot") & filters.private)
