@@ -6,13 +6,13 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from utils.database import get_movies_async as get_movies
 import redis.asyncio as redis
-from info import REDIS_HOST, REDIS_PORT, REDIS_USER, REDIS_PASS
+from info import REDIS_HOST, REDIS_PORT, REDIS_USERNAME, REDIS_PASSWORD
 
 rdb = redis.Redis(
     host=REDIS_HOST,
     port=REDIS_PORT,
-    username=REDIS_USER,
-    password=REDIS_PASS,
+    username=REDIS_USERNAME,
+    password=REDIS_PASSWORD,
     decode_responses=True
 )
 
