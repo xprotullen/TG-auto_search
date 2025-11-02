@@ -15,6 +15,7 @@ collection = db[COLLECTION_NAME]
 
 async def ensure_indexes():
     try:
+        # Movie collection indexes
         await collection.create_index(
             [("title", TEXT), ("caption", TEXT), ("codec", TEXT)],
             name="movie_text_index",
@@ -26,10 +27,18 @@ async def ensure_indexes():
         for field in ["chat_id", "quality", "lang", "print", "season", "episode", "codec"]:
             await collection.create_index(field, background=True)
 
+        # ✅ New: indexed_chats indexes
+        await INDEXED_COLL.create_index("target_chat", background=True)
+        await INDEXED_COLL.create_index("source_chat", background=True)
+        await INDEXED_COLL.create_index(
+            [("target_chat", 1), ("source_chat", 1)],
+            unique=True,
+            background=True
+        )
+
         logger.info("✅ Indexes ensured successfully")
     except Exception:
         logger.exception("Failed to create indexes")
-
 
 def _safe_int(value):
     """Convert episodes/seasons to proper int or keep valid string."""
