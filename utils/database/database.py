@@ -204,3 +204,13 @@ async def get_sources_for_target_async(target_chat: int):
     except Exception:
         logger.exception("get_sources_for_target_async failed")
         return []
+
+
+async def is_chat_linked_async(target_chat: int) -> bool:
+    """Check if the target chat is linked to any source chat."""
+    try:
+        doc = await INDEXED_COLL.find_one({"target_chat": target_chat})
+        return bool(doc)
+    except Exception:
+        logger.exception("is_chat_linked_async failed")
+        return False
