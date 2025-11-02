@@ -41,10 +41,6 @@ async def ensure_indexes():
     except Exception:
         logger.exception("Failed to create indexes")
 
-        logger.info("✅ Indexes ensured successfully")
-    except Exception:
-        logger.exception("Failed to create indexes")
-
 def _safe_int(value):
     """Convert episodes/seasons to proper int or keep valid string."""
     try:
