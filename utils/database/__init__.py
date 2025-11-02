@@ -8,5 +8,6 @@ from .database import (
     get_targets_for_source_async, 
     get_sources_for_target_async,
     collection, 
-    is_chat_linked_async
+    is_chat_linked_async, 
+    INDEXED_COLL
 )      
