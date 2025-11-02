@@ -87,8 +87,6 @@ async def search_movie(client, message):
         source=source, edit=False
     )
 
-
-# ---------------- SEND RESULTS ---------------- #
 async def send_results(
     message, query, chat_id, user_id, page,
     all_results, total, pages, source=None, edit=False
@@ -145,23 +143,27 @@ async def send_results(
 
     markup = InlineKeyboardMarkup(buttons) if buttons else None
 
-    if edit:
-        await message.edit_text(
-            text,
-            reply_markup=markup,
-            disable_web_page_preview=True,
-            parse_mode=enums.ParseMode.HTML
-        )
-    else:
-        await message.reply_text(
-            text,
-            reply_markup=markup,
-            disable_web_page_preview=True,
-            parse_mode=enums.ParseMode.HTML
-        )
+    try:
+        if edit:
+            await message.edit_text(
+                text,
+                reply_markup=markup,
+                disable_web_page_preview=True,
+                parse_mode=enums.ParseMode.HTML
+            )
+        else:
+            await message.reply_text(
+                text,
+                reply_markup=markup,
+                disable_web_page_preview=True,
+                parse_mode=enums.ParseMode.HTML
+            )
 
-
-# ---------------- PAGINATION HANDLER ---------------- #
+    except FloodWait as e:
+        raise e
+    except MessageNotModified:
+        pass
+        
 @Client.on_callback_query(filters.regex(r"^page\|"))
 async def pagination_handler(client, query: CallbackQuery):
     try:
@@ -172,11 +174,9 @@ async def pagination_handler(client, query: CallbackQuery):
     except Exception:
         return await query.answer("⚠️ Invalid data.", show_alert=True)
 
-    # 🧠 Allow only the original user
     if query.from_user.id != owner_id:
         return await query.answer("⚠️ Only the original user can use these buttons!", show_alert=True)
 
-    # 1️⃣ Fetch cached data
     cache_data = await get_cached_results(chat_id, search_query)
     if not cache_data:
         return await query.answer("⏳ Cache expired! Please search again.", show_alert=True)
@@ -188,7 +188,19 @@ async def pagination_handler(client, query: CallbackQuery):
     if page < 1 or page > pages:
         return await query.answer("⚠️ Invalid page.", show_alert=True)
 
-    await query.answer()
-    await send_results(
-        query.message, search_query, chat_id, owner_id, page, all_results, total, pages, edit=True
-    )
+    try:
+        await send_results(
+            query.message, search_query, chat_id, owner_id, page,
+            all_results, total, pages, edit=True
+        )
+        await query.answer()
+    except FloodWait as e:
+        return await query.answer(
+            f"⚠️ Flood control active!\nPlease wait {e.value} seconds before next click.",
+            show_alert=True
+        )
+    except Exception as ex:
+        return await query.answer(
+            f"❌ Error: {ex}",
+            show_alert=True
+        )
