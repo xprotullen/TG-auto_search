@@ -109,7 +109,7 @@ async def reindex_chat(client, message):
     try:
         async for msg in client.USER.search_messages(
             source_chat_id,
-            filter=None,
+            filter=MessagesFilter.EMPTY,
             offset=skip_count
         ):
             if not REINDEXING.get(user_id):
