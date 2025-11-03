@@ -1,6 +1,6 @@
 from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessageMediaType, MessagesFilter
-from pyrogram.errors import RPCError
+from pyrogram.errors import RPCError, FloodWait
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import logging
@@ -115,7 +115,7 @@ async def reindex_chat(client, message):
     unsupported = 0
     count = 0
     try:
-        async for msg in iter_messages(client, source_chat_id, last_msg_id, current_msg_id):
+        async for msg in client.iter_messages(source_chat_id, last_msg_id, current_msg_id):
             if not REINDEXING.get(user_id):
                 await progress.edit_text("🚫 Reindex cancelled.")
                 return
@@ -163,11 +163,14 @@ async def reindex_chat(client, message):
                         f"♻️ Reindexing...\n✅ Indexed: {indexed}\n⚠️ Unsupported: {unsupported}\n❌ Failed: {errors}\n"
                         f"From `{source_chat_id}` → `{target_chat_id}`",
                         reply_markup=keyboard
-                    )
-
+                    )    
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                continue       
             except Exception as e:
                 errors += 1
                 logger.warning(f"⚠️ Save failed: {e}")
+                continue
 
         await rebuild_indexes()
         await mark_indexed_chat_async(target_chat_id, source_chat_id)
