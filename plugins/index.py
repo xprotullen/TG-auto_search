@@ -14,6 +14,9 @@ from utils.database import (
 )
 from utils import extract_details
 from info import AUTHORIZED_USERS
+from bot import Wroxen
+
+USER = Wroxen.USER
 
 INDEXING = {}
 BATCH_SIZE = 50
@@ -182,7 +185,7 @@ async def cancel_index_callback(client, callback_query):
     await callback_query.answer("Cancelled!", show_alert=True)
     await callback_query.message.edit_text("🚫 Indexing cancelled.")
 
-@Client.on_message((filters.group | filters.channel) & (filters.document | filters.video))
+@USER.on_message((filters.group | filters.channel) & (filters.document | filters.video))
 async def auto_index_new_post(client, message):
     """
     When new media posted in indexed source chat → auto-save in all linked targets.
