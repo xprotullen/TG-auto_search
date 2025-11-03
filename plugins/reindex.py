@@ -1,5 +1,5 @@
 from pyrogram import Client, filters
-from pyrogram.enums import ChatMemberStatus, MessageMediaType
+from pyrogram.enums import ChatMemberStatus, MessageMediaType, MessagesFilter
 from pyrogram.errors import RPCError
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
