@@ -50,7 +50,20 @@ async def set_cached_results(chat_id: int, query: str, results: list):
     payload = json.dumps({"results": results, "total": len(results)}, cls=JSONEncoder)
     await rdb.setex(key, CACHE_TTL, payload)
 
+async def clear_redis_for_chat(chat_id: int):
+    """Remove all Redis cache keys belonging to a given chat."""
+    pattern = f"movie_search:*"
+    keys = await rdb.keys(pattern)
+    if not keys:
+        return 0
 
+    deleted = 0
+    for key in keys:
+        if f"{chat_id}:" in key:  # each key includes chat_id in its hash seed
+            await rdb.delete(key)
+            deleted += 1
+    return deleted
+    
 # ---------------- SEARCH HANDLER ---------------- #
 @Client.on_message(filters.group & filters.text)
 async def search_movie(client, message):
