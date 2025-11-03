@@ -14,9 +14,6 @@ db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 INDEXED_COLL = db["indexed_chats"]
 
-# ----------------------------
-# 🔹 INDEX MANAGEMENT
-# ----------------------------
 async def drop_existing_indexes():
     """Drop all existing indexes safely."""
     try:
@@ -72,9 +69,6 @@ async def rebuild_indexes():
         logger.exception(f"Rebuild indexes failed: {e}")
 
 
-# ----------------------------
-# 🔹 SAFE CONVERSIONS
-# ----------------------------
 def _safe_int(value):
     """Convert episodes/seasons to int or keep valid string."""
     try:
@@ -93,9 +87,6 @@ def _safe_int(value):
         return None
 
 
-# ----------------------------
-# 🔹 MOVIE MANAGEMENT
-# ----------------------------
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
                            quality: str = None, lang: str = None, print_type: str = None,
                            season=None, episode=None, codec: str = None,
@@ -142,9 +133,6 @@ async def delete_chat_data_async(chat_id: int):
         return 0
 
 
-# ----------------------------
-# 🔹 SEARCH / QUERY
-# ----------------------------
 async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 100):
     """Full-text + regex hybrid search."""
     if not query or not query.strip():
@@ -212,9 +200,6 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         return {"results": results, "total": total, "page": page, "pages": pages}
 
 
-# ----------------------------
-# 🔹 INDEXED CHAT MAPPING
-# ----------------------------
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
     """Link one target chat with one source."""
     try:
