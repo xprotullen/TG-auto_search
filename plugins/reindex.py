@@ -84,7 +84,7 @@ async def reindex_chat(client, message):
     deleted_redis = await clear_redis_for_chat(target_chat_id)
     await message.reply_text(f"✅ Deleted {deleted_mongo} Mongo docs and {deleted_redis} Redis keys.")
 
-    prompt = await message.reply("✏️ Please send a Start **message ID** or **message link**: where u wana start indexing")
+    prompt = await message.reply("✏️ Please send a Start <b>message ID</b>or <b>message link</b>: where u wana start indexing")
     reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
     await prompt.delete()
     try:
@@ -92,7 +92,7 @@ async def reindex_chat(client, message):
     except Exception as e:
         return await message.reply("Error {e}!")
 
-    prompt = await message.reply("✏️ Please send a Last **message ID** or **message link**: where u wana stop indexing")
+    prompt = await message.reply("✏️ Please send a Last <b>message ID</b>or <b>message link</b>: where u wana stop indexing")
     reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
     await prompt.delete()
     try:
@@ -107,7 +107,7 @@ async def reindex_chat(client, message):
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
     ])
     progress = await message.reply_text(
-        f"♻️ Reindexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`\nSkip: `{skip_count}`",
+        f"♻️ Reindexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`\nSkip: `{current_msg_id}`",
         reply_markup=keyboard
     )
 
@@ -118,10 +118,6 @@ async def reindex_chat(client, message):
     count = 0
     try:
         async for msg in iter_messages(client, source_chat_id, last_msg_id, current_msg_id):
-            if count < skip_count:
-                count += 1
-                continue
-                
             if not REINDEXING.get(user_id):
                 await progress.edit_text("🚫 Reindex cancelled.")
                 return
