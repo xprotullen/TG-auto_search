@@ -146,7 +146,6 @@ async def checkbot_handler(client, message):
     start_time = time.time()
     status_lines = []
 
-    # ========== MongoDB ==========
     try:
         await collection.estimated_document_count()
         stats = await collection.database.command("dbStats")
@@ -161,7 +160,6 @@ async def checkbot_handler(client, message):
         mongo_data = humanize.naturalsize(mongo_data_raw, binary=True)
         mongo_index = humanize.naturalsize(mongo_index_raw, binary=True)
 
-        # ✅ Accurate Atlas free-tier (512 MiB)
         atlas_limit = 512 * 1024 * 1024  # 512 MiB
         total_used = mongo_data_raw + mongo_index_raw
         used_percent = (total_used / atlas_limit) * 100
@@ -179,7 +177,6 @@ async def checkbot_handler(client, message):
     except Exception as e:
         status_lines.append(f"🔴 MongoDB: Failed ({e})")
 
-    # ========== Redis ==========
     try:
         info = await rdb.info()
         used_memory_raw = info.get("used_memory", 0)
@@ -191,7 +188,6 @@ async def checkbot_handler(client, message):
         total_access = hits + misses
         hit_ratio = (hits / total_access * 100) if total_access > 0 else 0
 
-        # Assume 100 MiB for free plan if not defined
         if not maxmemory_raw:
             maxmemory_raw = 100 * 1024 * 1024
             plan_note = " (estimated free plan)"
@@ -215,7 +211,6 @@ async def checkbot_handler(client, message):
     except Exception as e:
         status_lines.append(f"🔴 Redis: Failed ({e})")
 
-    # ========== Mongo Index Check ==========
     try:
         indexes = await collection.index_information()
         if "movie_text_index" in indexes:
@@ -225,7 +220,6 @@ async def checkbot_handler(client, message):
     except Exception as e:
         status_lines.append(f"🔴 Index Check Failed: {e}")
 
-    # ========== Final Report ==========
     response_time = round((time.time() - start_time) * 1000, 2)
     status_lines.append(f"⚙️ Response Time: {response_time} ms")
 
