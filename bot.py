@@ -3,7 +3,7 @@ from pyrogram import Client, enums, __version__
 from info import API_HASH, APP_ID, LOGGER, BOT_TOKEN 
 from user import User
 from utils.database import ensure_indexes
-
+from plugins.newpost import register_userbot_handlers
 
 class Wroxen(Client):
     USER: User = None
@@ -30,17 +30,13 @@ class Wroxen(Client):
         self.LOGGER(__name__).info(
             f"🤖 @{bot_details.username} started successfully!"
         )
-
-        # ✅ Ensure MongoDB indexes are created
+        
         await ensure_indexes()
 
-        # ✅ Start userbot (for indexing messages)
         self.USER, self.USER_ID = await User().start()
         self.LOGGER(__name__).info("✅ Userbot started successfully!")
 
-        # ✅ Register userbot handlers dynamically after userbot is ready
         try:
-            from plugins.newpost import register_userbot_handlers
             register_userbot_handlers(self.USER)
             self.LOGGER(__name__).info("📌 Userbot message handlers registered.")
         except Exception as e:
