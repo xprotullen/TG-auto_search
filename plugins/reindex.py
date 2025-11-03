@@ -12,7 +12,7 @@ from utils.database import (
     save_movie_async,
     rebuild_indexes
 )
-from utils import extract_details, iter_messages, ask_for_message_link_or_id
+from utils import extract_details
 
 logger = logging.getLogger(__name__)
 
