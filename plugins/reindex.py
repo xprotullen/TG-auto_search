@@ -12,7 +12,7 @@ from utils.database import (
     save_movie_async,
     rebuild_indexes
 )
-from utils import extract_details
+from utils import extract_details, iter_messages, ask_for_message_link_or_id
 
 logger = logging.getLogger(__name__)
 
@@ -84,17 +84,26 @@ async def reindex_chat(client, message):
     deleted_redis = await clear_redis_for_chat(target_chat_id)
     await message.reply_text(f"✅ Deleted {deleted_mongo} Mongo docs and {deleted_redis} Redis keys.")
 
-    # --- Ask for Skip Count ---
-    s = await message.reply("✏️ Enter number of messages to skip from start:")
-    skip_msg = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
-    await s.delete()
-
+    prompt = await message.reply("✏️ Please send a Start **message ID** or **message link**: where u wana start indexing")
+    reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    await prompt.delete()
     try:
-        skip_count = int(skip_msg.text)
-    except Exception:
-        return await message.reply("❌ Invalid number!")
+        first_c, current_msg_id = await ask_for_message_link_or_id(message, source_chat_id, reply.text)
+    except Exception as e:
+        return await message.reply("Error {e}!")
 
-    keyboard = InlineKeyboardMarkup([
+    prompt = await message.reply("✏️ Please send a Last **message ID** or **message link**: where u wana stop indexing")
+    reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    await prompt.delete()
+    try:
+        source_chat_id, last_msg_id = await ask_for_message_link_or_id(message, source_chat_id, reply.text)
+    except Exception as e:
+        return await message.reply("Error {e}!")
+    
+    if first_c != source_chat_id:
+        return await message.reply("You Send Two Different Chat Link, Try again and send same chat link")
+           
+    kyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
     ])
     progress = await message.reply_text(
@@ -108,7 +117,7 @@ async def reindex_chat(client, message):
     unsupported = 0
     count = 0
     try:
-        async for msg in client.USER.get_chat_history(source_chat_id, reverse=True):
+        async for msg in iter_messages(client, source_chat_id, last_msg_id, current_msg_id):
             if count < skip_count:
                 count += 1
                 continue
