@@ -14,9 +14,6 @@ from utils.database import (
 )
 from utils import extract_details
 from info import AUTHORIZED_USERS
-from bot import Wroxen
-
-USER = Wroxen.USER
 
 INDEXING = {}
 BATCH_SIZE = 50
@@ -184,44 +181,6 @@ async def cancel_index_callback(client, callback_query):
     INDEXING[user_id] = False
     await callback_query.answer("Cancelled!", show_alert=True)
     await callback_query.message.edit_text("🚫 Indexing cancelled.")
-
-@USER.on_message((filters.group | filters.channel) & (filters.document | filters.video))
-async def auto_index_new_post(client, message):
-    """
-    When new media posted in indexed source chat → auto-save in all linked targets.
-    """
-    from_chat = message.chat.id
-    try:
-        targets = await get_targets_for_source_async(from_chat)
-        if not targets:
-            return  # not indexed source
-        msg_caption = (
-            message.caption
-            or getattr(message.video, "file_name", None)
-            or getattr(message.document, "file_name", None)
-        )
-        if not msg_caption:
-            return
-        details = extract_details(msg_caption)
-
-        for target_chat in targets:
-            await save_movie_async(
-                chat_id=target_chat,
-                title=details.get("title"),
-                year=details.get("year"),
-                quality=details.get("quality"),
-                lang=details.get("lang"),
-                print_type=details.get("print"),
-                season=details.get("season"),
-                episode=details.get("episode"),
-                codec=details.get("codec"),
-                caption=message.caption,
-                link=message.link
-            )
-            logger.info(f"✅ Auto-synced new post from {from_chat} → {target_chat}")
-
-    except Exception as e:
-        logger.info(f"⚠️ Auto index error: {e}")
 
 @Client.on_message(filters.command("delete"))
 async def delete_indexed_pair(client, message):
