@@ -2,10 +2,11 @@ import time
 import humanize
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import RPCError
 from utils.database import collection, ensure_indexes, INDEXED_COLL
 from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
-from .search import rdb  
+from .search import rdb, clear_redis_for_chat
 from info import AUTHORIZED_USERS
 import logging
 
@@ -44,6 +45,35 @@ async def start_command(client, message):
         disable_web_page_preview=True
     )
 
+
+@Client.on_message(filters.command("clearcache"))
+async def clear_cache_cmd(client, message):
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        return await message.reply_text("🚫 You are not authorized to use this command.")
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        return await message.reply_text("Usage: `/clearcache <chat_id>`", quote=True)
+
+    try:
+        chat_id = int(parts[1])
+    except ValueError:
+        return await message.reply_text("❌ Invalid chat ID!", quote=True)
+
+    msg = await message.reply_text("🧹 Clearing Redis cache, please wait...")
+
+    try:
+        deleted = await clear_redis_for_chat(chat_id)
+        if deleted == 0:
+            await msg.edit_text(f"ℹ️ No Redis keys found for `{chat_id}`.")
+        else:
+            await msg.edit_text(f"✅ Cleared `{deleted}` Redis cache keys for chat `{chat_id}`.")
+    except RPCError as e:
+        await msg.edit_text(f"⚠️ Telegram RPC Error: {e}")
+    except Exception as e:
+        await msg.edit_text(f"❌ Unexpected error: {e}")    
+        
 @Client.on_message(filters.command("resetdb") & filters.private)
 async def resetdb_handler(client, message):
     """Drop full movie database only after confirmation."""
