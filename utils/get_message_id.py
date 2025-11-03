@@ -21,7 +21,7 @@ async def ask_for_message_link_or_id(message, source_chat_id, ask_text):
             chat_id = part1
 
     elif user_input.isdigit():
-        chat_id = source_chat_id
+        chat_id = int(source_chat_id)
         message_id = int(user_input)
 
     else:
