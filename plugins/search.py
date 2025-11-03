@@ -10,7 +10,6 @@ from info import REDIS_HOST, REDIS_PORT, REDIS_USERNAME, REDIS_PASSWORD
 from pyrogram.errors import FloodWait, MessageNotModified
 import asyncio
 
-# ---------------- REDIS CONNECTION ---------------- #
 rdb = redis.Redis(
     host=REDIS_HOST,
     port=REDIS_PORT,
@@ -19,12 +18,10 @@ rdb = redis.Redis(
     decode_responses=True
 )
 
-# ---------------- CONFIG ---------------- #
-CACHE_TTL = 3600         # Cache for 1 hour
-RESULTS_PER_PAGE = 10    # Results per page
-MAX_RESULTS = 500        # Max results stored per search
+CACHE_TTL = 600       
+RESULTS_PER_PAGE = 10  
+MAX_RESULTS = 500 
 
-# ---------------- JSON ENCODER ---------------- #
 class JSONEncoder(json.JSONEncoder):
     """Make ObjectId JSON serializable."""
     def default(self, o):
@@ -33,7 +30,6 @@ class JSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-# ---------------- UTILITIES ---------------- #
 def make_cache_key(chat_id: int, query: str) -> str:
     """Generate a unique Redis key for a user's query."""
     raw = f"{chat_id}:{query.strip().lower()}"
@@ -54,10 +50,7 @@ async def set_cached_results(chat_id: int, query: str, results: list):
     key = make_cache_key(chat_id, query)
     payload = json.dumps({"results": results, "total": len(results)}, cls=JSONEncoder)
 
-    # Store the main search cache
     await rdb.setex(key, CACHE_TTL, payload)
-
-    # Track this cache key in the chat's set
     await rdb.sadd(f"chat_cache_keys:{chat_id}", key)
 
 
@@ -71,15 +64,10 @@ async def clear_redis_for_chat(chat_id: int):
     if not keys:
         return 0
 
-    # Delete all movie_search keys
     await rdb.delete(*keys)
-
-    # Delete the set itself
     await rdb.delete(set_key)
-
     return len(keys)
     
-# ---------------- SEARCH HANDLER ---------------- #
 @Client.on_message(filters.group & filters.text)
 async def search_movie(client, message):
     chat_id = int(message.chat.id)
@@ -90,7 +78,6 @@ async def search_movie(client, message):
         
     query = message.text.strip()
     user_id = message.from_user.id
-           
     if not query or query.startswith(("/", ".", "!", ",")):
         return
 
@@ -98,14 +85,12 @@ async def search_movie(client, message):
     if cache_data:
         results = cache_data["results"]
         total = cache_data["total"]
-        source = "Redis ⚡"
     else:
         mongo_data = await get_movies(chat_id, query, page=1, limit=MAX_RESULTS)
         results = mongo_data["results"]
         total = mongo_data["total"]
 
         await set_cached_results(chat_id, query, results)
-        source = "MongoDB 🧩"
 
     if not results:
         return 
@@ -114,23 +99,19 @@ async def search_movie(client, message):
 
     await send_results(
         message, query, chat_id, user_id, 1, results, total, pages,
-        source=source, edit=False
+        edit=False
     )
 
 async def send_results(
     message, query, chat_id, user_id, page,
-    all_results, total, pages, source=None, edit=False
+    all_results, total, pages, edit=False
 ):
     start = (page - 1) * RESULTS_PER_PAGE
     end = start + RESULTS_PER_PAGE
     movies = all_results[start:end]
 
     text = f"<b>Results for:</b> <code>{escape(query)}</code>\n"
-    text += f"📄 Page {page}/{pages} — Total: {total}\n"
-    if source:
-        text += f"⚙️ Source: {source}\n\n"
-    else:
-        text += "\n"
+    text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
 
     for i, movie in enumerate(movies, start=start + 1):
         title = movie.get("title") or "Unknown"
