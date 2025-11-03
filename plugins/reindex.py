@@ -106,13 +106,13 @@ async def reindex_chat(client, message):
     indexed = 0
     errors = 0
     unsupported = 0
-
+    count = 0
     try:
-        async for msg in client.USER.search_messages(
-            source_chat_id,
-            filter=MessagesFilter.EMPTY,
-            offset=skip_count
-        ):
+        async for msg in client.USER.get_chat_history(chat_id, reverse=True):
+            if count < skip_count:
+                count += 1
+                continue
+                
             if not REINDEXING.get(user_id):
                 await progress.edit_text("🚫 Reindex cancelled.")
                 return
