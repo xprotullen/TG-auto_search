@@ -126,7 +126,7 @@ async def resetdb_handler(client, message):
             return await message.reply("❌ Reset cancelled.")
         msg = await message.reply("🧹 Resetting database... please wait.")
         await collection.drop()            
-        await INDEXED_COLL.drop_indexes()  
+        await INDEXED_COLL.drop()  
         await ensure_indexes()
         await rdb.flushdb()
         await msg.edit_text("✅ Database reset successfully!\nAll data wiped and indexes rebuilt.")
