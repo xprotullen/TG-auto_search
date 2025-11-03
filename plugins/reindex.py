@@ -4,7 +4,7 @@ from pyrogram.errors import RPCError
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import logging
-
+from .search import clear_redis_for_chat
 from info import AUTHORIZED_USERS
 from utils.database import (
     delete_chat_data_async,
@@ -79,9 +79,10 @@ async def reindex_chat(client, message):
         return await message.reply_text("❌ Userbot must be at least a member in source chat!")
 
     # --- Confirm and Delete Old Data ---
-    await message.reply_text(f"🗑️ Deleting old records for `{target_chat_id}` ...")
-    deleted = await delete_chat_data_async(chat_id=target_chat_id)
-    await message.reply_text(f"✅ Deleted `{deleted}` old entries. Starting fresh reindex.")
+    await message.reply_text(f"🗑️ Deleting old MongoDB and Redis data for `{target_chat_id}`...")
+    deleted_mongo = await delete_chat_data_async(chat_id=target_chat_id)
+    deleted_redis = await clear_redis_for_chat(target_chat_id)
+    await message.reply_text(f"✅ Deleted {deleted_mongo} Mongo docs and {deleted_redis} Redis keys.")
 
     # --- Ask for Skip Count ---
     s = await message.reply("✏️ Enter number of messages to skip from start:")
