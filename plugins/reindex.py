@@ -1,0 +1,173 @@
+from pyrogram import Client, filters
+from pyrogram.enums import ChatMemberStatus, MessageMediaType
+from pyrogram.errors import RPCError
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import asyncio
+import logging
+
+from info import AUTHORIZED_USERS
+from utils.database import (
+    delete_chat_data_async,
+    mark_indexed_chat_async,
+    save_movie_async,
+    rebuild_indexes
+)
+from utils import extract_details
+
+logger = logging.getLogger(__name__)
+
+REINDEXING = {}
+BATCH_SIZE = 50
+
+
+@Client.on_message(filters.command("reindex"))
+async def reindex_chat(client, message):
+    """
+    /reindex <target_chat_id> <source_chat_id>
+    Example: /reindex -1001234 -1005678
+    """
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        return
+
+    parts = message.text.split()
+    if len(parts) < 3:
+        return await message.reply_text("Usage: `/reindex target_chat_id source_chat_id`")
+
+    target_chat_id = int(parts[1])
+    source_chat_id = int(parts[2])
+
+    # --- Permission Checks (same as /index) ---
+    try:
+        bot_member = await client.get_chat_member(target_chat_id, "me")
+    except RPCError as e:
+        return await message.reply_text(f"⚠️ Telegram Error (target): {e}")
+    except Exception as e:
+        return await message.reply_text(f"❌ Unexpected error in target chat: {e}")
+    if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+        return await message.reply_text("❌ Bot must be admin in target chat!")
+
+    try:
+        user_member = await client.get_chat_member(target_chat_id, user_id)
+    except RPCError as e:
+        return await message.reply_text(f"⚠️ Telegram Error (target user): {e}")
+    except Exception as e:
+        return await message.reply_text(f"❌ Unexpected error checking user in target chat: {e}")
+    if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+        return await message.reply_text("❌ You must be admin in target chat to start reindexing!")
+
+    try:
+        bot_member_source = await client.get_chat_member(source_chat_id, "me")
+    except RPCError as e:
+        return await message.reply_text(f"⚠️ Telegram Error (source): {e}")
+    except Exception as e:
+        return await message.reply_text(f"❌ Unexpected error in source chat: {e}")
+    if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+        return await message.reply_text("❌ Bot must be admin in source chat to fetch messages!")
+
+    try:
+        userbot_member = await client.USER.get_chat_member(source_chat_id, "me")
+    except RPCError as e:
+        return await message.reply_text(f"⚠️ Telegram Error (userbot): {e}")
+    except Exception as e:
+        return await message.reply_text(f"❌ Userbot can't access source chat: {e}")
+    if userbot_member.status not in [
+        ChatMemberStatus.ADMINISTRATOR,
+        ChatMemberStatus.OWNER,
+        ChatMemberStatus.MEMBER
+    ]:
+        return await message.reply_text("❌ Userbot must be at least a member in source chat!")
+
+    # --- Confirm and Delete Old Data ---
+    await message.reply_text(f"🗑️ Deleting old records for `{target_chat_id}` ...")
+    deleted = await delete_chat_data_async(chat_id=target_chat_id)
+    await message.reply_text(f"✅ Deleted `{deleted}` old entries. Starting fresh reindex.")
+
+    # --- Ask for Skip Count ---
+    s = await message.reply("✏️ Enter number of messages to skip from start:")
+    skip_msg = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    await s.delete()
+
+    try:
+        skip_count = int(skip_msg.text)
+    except Exception:
+        return await message.reply("❌ Invalid number!")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
+    ])
+    progress = await message.reply_text(
+        f"♻️ Reindexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`\nSkip: `{skip_count}`",
+        reply_markup=keyboard
+    )
+
+    REINDEXING[user_id] = True
+    indexed = 0
+    errors = 0
+    unsupported = 0
+
+    try:
+        async for msg in client.USER.search_messages(
+            source_chat_id,
+            filter=None,
+            offset=skip_count
+        ):
+            if not REINDEXING.get(user_id):
+                await progress.edit_text("🚫 Reindex cancelled.")
+                return
+
+            if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
+                unsupported += 1
+                continue
+
+            msg_caption = (
+                msg.caption
+                or getattr(msg.video, "file_name", None)
+                or getattr(msg.document, "file_name", None)
+            )
+            if not msg_caption:
+                unsupported += 1
+                continue
+
+            try:
+                details = extract_details(msg_caption)
+                await save_movie_async(
+                    chat_id=target_chat_id,
+                    title=details.get("title"),
+                    year=details.get("year"),
+                    quality=details.get("quality"),
+                    lang=details.get("lang"),
+                    print_type=details.get("print"),
+                    season=details.get("season"),
+                    episode=details.get("episode"),
+                    codec=details.get("codec"),
+                    caption=msg_caption,
+                    link=msg.link
+                )
+                indexed += 1
+                if indexed % BATCH_SIZE == 0:
+                    await asyncio.sleep(2)
+                    await progress.edit_text(
+                        f"♻️ Reindexing...\n✅ Indexed: {indexed}\n⚠️ Unsupported: {unsupported}\n❌ Failed: {errors}\n"
+                        f"From `{source_chat_id}` → `{target_chat_id}`",
+                        reply_markup=keyboard
+                    )
+
+            except Exception as e:
+                errors += 1
+                logger.warning(f"⚠️ Save failed: {e}")
+
+        await rebuild_indexes()
+        await mark_indexed_chat_async(target_chat_id, source_chat_id)
+
+        await progress.edit_text(
+            f"✅ Reindex Completed!\n\n"
+            f"📂 Indexed: {indexed}\n⚠️ Unsupported: {unsupported}\n❌ Failed: {errors}\n"
+            f"🔗 `{source_chat_id}` → `{target_chat_id}`"
+        )
+
+    except Exception as e:
+        await progress.edit_text(f"❌ Error during reindex: {e}")
+        logger.exception(e)
+    finally:
+        REINDEXING.pop(user_id, None)
