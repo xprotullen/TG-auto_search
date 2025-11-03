@@ -82,24 +82,24 @@ async def reindex_chat(client, message):
     deleted_redis = await clear_redis_for_chat(target_chat_id)
     await message.reply_text(f"✅ Deleted {deleted_mongo} Mongo docs and {deleted_redis} Redis keys.")
 
-    prompt = await message.reply("✏️ Please send a Start <b>message ID</b>or <b>message link</b>: where u wana start indexing")
-    reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
-    await prompt.delete()
-    try:
-        first_c, current_msg_id = await ask_for_message_link_or_id(message, source_chat_id, reply.text)
-    except Exception as e:
-        return await message.reply("Error {e}!")
+    #prompt = await message.reply("✏️ Please send a Start <b>message ID</b>or <b>message link</b>: where u wana start indexing")
+    #reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    #await prompt.delete()
+    #try:
+        #first_c, current_msg_id = await ask_for_message_link_or_id(message, source_chat_id, reply.text)
+    #except Exception as e:
+        #return await message.reply("Error {e}!")
 
-    prompt = await message.reply("✏️ Please send a Last <b>message ID</b>or <b>message link</b>: where u wana stop indexing")
-    reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
-    await prompt.delete()
-    try:
-        source_chat_id, last_msg_id = await ask_for_message_link_or_id(message, source_chat_id, reply.text)
-    except Exception as e:
-        return await message.reply("Error {e}!")
+    #prompt = await message.reply("✏️ Please send a Last <b>message ID</b>or <b>message link</b>: where u wana stop indexing")
+    #reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    #await prompt.delete()
+    #try:
+        #source_chat_id, last_msg_id = await ask_for_message_link_or_id(message, source_chat_id, reply.text)
+    #except Exception as e:
+        #return await message.reply("Error {e}!")
     
-    if first_c != source_chat_id:
-        return await message.reply("You Send Two Different Chat Link, Try again and send same chat link")
+    #if first_c != source_chat_id:
+        #return await message.reply("You Send Two Different Chat Link, Try again and send same chat link")
            
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
@@ -115,15 +115,15 @@ async def reindex_chat(client, message):
     unsupported = 0
     count = 0
     try:
-        async for msg in client.iter_messages(source_chat_id, last_msg_id, current_msg_id):
-            if not REINDEXING.get(user_id):
-                await progress.edit_text("🚫 Reindex cancelled.")
+        async for msg in client.USER.search_messages(
+            source_chat_id,
+            filter=MessagesFilter.EMPTY,  # Fetch all messages
+            offset=0
+        ):
+            if not INDEXING.get(user_id):
+                await progress.edit_text("🚫 Indexing cancelled.")
                 return
-
-            if msg.empty:
-                unsupported += 1
-                continue
-
+                
             if not msg.media:
                 unsupported += 1
                 continue
@@ -136,7 +136,7 @@ async def reindex_chat(client, message):
                 msg.caption
                 or getattr(msg.video, "file_name", None)
                 or getattr(msg.document, "file_name", None)
-            )
+            )   
             if not msg_caption:
                 unsupported += 1
                 continue
@@ -160,17 +160,13 @@ async def reindex_chat(client, message):
                 if indexed % BATCH_SIZE == 0:
                     await asyncio.sleep(2)
                     await progress.edit_text(
-                        f"♻️ Reindexing...\n✅ Indexed: {indexed}\n⚠️ Unsupported: {unsupported}\n❌ Failed: {errors}\n"
+                        f"📈 Reindexing...\nIndexed: {indexed}\nUnsupported: {unsupported}\n⚠️ Failed: {errors}\n"
                         f"From `{source_chat_id}` → `{target_chat_id}`",
                         reply_markup=keyboard
-                    )    
-            except FloodWait as e:
-                await asyncio.sleep(e.value)
-                continue       
-            except Exception as e:
+                    )
+            except Exception as inner_e:
                 errors += 1
-                logger.warning(f"⚠️ Save failed: {e}")
-                continue
+                logger.info(f"⚠️ Skipped: {inner_e}")
 
         await rebuild_indexes()
         await mark_indexed_chat_async(target_chat_id, source_chat_id)
