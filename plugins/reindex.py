@@ -37,7 +37,6 @@ async def reindex_chat(client, message):
     target_chat_id = int(parts[1])
     source_chat_id = int(parts[2])
 
-    # --- Permission Checks (same as /index) ---
     try:
         bot_member = await client.get_chat_member(target_chat_id, "me")
     except RPCError as e:
@@ -78,7 +77,6 @@ async def reindex_chat(client, message):
     ]:
         return await message.reply_text("❌ Userbot must be at least a member in source chat!")
 
-    # --- Confirm and Delete Old Data ---
     await message.reply_text(f"🗑️ Deleting old MongoDB and Redis data for `{target_chat_id}`...")
     deleted_mongo = await delete_chat_data_async(chat_id=target_chat_id)
     deleted_redis = await clear_redis_for_chat(target_chat_id)
