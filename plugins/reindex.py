@@ -103,7 +103,7 @@ async def reindex_chat(client, message):
     if first_c != source_chat_id:
         return await message.reply("You Send Two Different Chat Link, Try again and send same chat link")
            
-    kyboard = InlineKeyboardMarkup([
+    keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
     ])
     progress = await message.reply_text(
