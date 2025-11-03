@@ -4,6 +4,7 @@ from info import API_HASH, APP_ID, LOGGER, BOT_TOKEN
 from user import User
 from utils.database import ensure_indexes
 
+
 class Wroxen(Client):
     USER: User = None
     USER_ID: int = None
@@ -27,12 +28,24 @@ class Wroxen(Client):
         bot_details = await self.get_me()
         self.set_parse_mode(enums.ParseMode.HTML)
         self.LOGGER(__name__).info(
-            f"@{bot_details.username}  started! "
+            f"🤖 @{bot_details.username} started successfully!"
         )
+
+        # ✅ Ensure MongoDB indexes are created
         await ensure_indexes()
+
+        # ✅ Start userbot (for indexing messages)
         self.USER, self.USER_ID = await User().start()
-       
+        self.LOGGER(__name__).info("✅ Userbot started successfully!")
+
+        # ✅ Register userbot handlers dynamically after userbot is ready
+        try:
+            from plugins.newpost import register_userbot_handlers
+            register_userbot_handlers(self.USER)
+            self.LOGGER(__name__).info("📌 Userbot message handlers registered.")
+        except Exception as e:
+            self.LOGGER(__name__).error(f"Failed to register userbot handlers: {e}")
 
     async def stop(self, *args, **kwargs):
         await super().stop(*args, **kwargs)
-        self.LOGGER(__name__).info("Bot stopped. Bye.")
+        self.LOGGER(__name__).info("🛑 Bot stopped. Bye.")

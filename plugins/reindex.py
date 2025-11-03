@@ -1,43 +1,43 @@
+from pyrogram import Client, filters
+from pyrogram.enums import ChatMemberStatus, MessageMediaType, MessagesFilter
+from pyrogram.errors import RPCError
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import logging
-from pyrogram import Client, filters
-from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import RPCError
 from .search import clear_redis_for_chat
+from info import AUTHORIZED_USERS
 from utils.database import (
-    save_movie_async,
     delete_chat_data_async,
     mark_indexed_chat_async,
-    unmark_indexed_chat_async,
-    get_targets_for_source_async
+    save_movie_async,
+    rebuild_indexes
 )
 from utils import extract_details, iter_messages, ask_for_message_link_or_id
-from info import AUTHORIZED_USERS
 
-INDEXING = {}
-BATCH_SIZE = 50
 logger = logging.getLogger(__name__)
 
-@Client.on_message(filters.command("index"))
-async def index_chat(client, message):
+REINDEXING = {}
+BATCH_SIZE = 50
+
+
+@Client.on_message(filters.command("reindex"))
+async def reindex_chat(client, message):
     """
-    /index <target_chat_id> <source_chat_id>
-    Example: /index -1001234 -1005678
+    /reindex <target_chat_id> <source_chat_id>
+    Example: /reindex -1001234 -1005678
     """
     user_id = message.from_user.id
     if user_id not in AUTHORIZED_USERS:
         return
-        
+
     parts = message.text.split()
     if len(parts) < 3:
-        return await message.reply_text("Usage: `/index target_chat_id source_chat_id`")
+        return await message.reply_text("Usage: `/reindex target_chat_id source_chat_id`")
 
     target_chat_id = int(parts[1])
     source_chat_id = int(parts[2])
-    source_chat_ids = source_chat_id
-    user_id = message.from_user.id
 
+    # --- Permission Checks (same as /index) ---
     try:
         bot_member = await client.get_chat_member(target_chat_id, "me")
     except RPCError as e:
@@ -54,7 +54,7 @@ async def index_chat(client, message):
     except Exception as e:
         return await message.reply_text(f"❌ Unexpected error checking user in target chat: {e}")
     if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-        return await message.reply_text("❌ You must be admin in target chat to start indexing!")
+        return await message.reply_text("❌ You must be admin in target chat to start reindexing!")
 
     try:
         bot_member_source = await client.get_chat_member(source_chat_id, "me")
@@ -76,14 +76,14 @@ async def index_chat(client, message):
         ChatMemberStatus.OWNER,
         ChatMemberStatus.MEMBER
     ]:
-        return await message.reply_text("❌ Userbot must be at least a member in source chat!")    
-        
-    if await get_targets_for_source_async(source_chat_id):
-        return await message.reply_text(
-            f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
-            f"To reindex, run `/delete {target_chat_id} {source_chat_id}` first."
-        )
-        
+        return await message.reply_text("❌ Userbot must be at least a member in source chat!")
+
+    # --- Confirm and Delete Old Data ---
+    await message.reply_text(f"🗑️ Deleting old MongoDB and Redis data for `{target_chat_id}`...")
+    deleted_mongo = await delete_chat_data_async(chat_id=target_chat_id)
+    deleted_redis = await clear_redis_for_chat(target_chat_id)
+    await message.reply_text(f"✅ Deleted {deleted_mongo} Mongo docs and {deleted_redis} Redis keys.")
+
     prompt = await message.reply("✏️ Please send a Start <b>message ID</b>or <b>message link</b>: where u wana start indexing")
     reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
     await prompt.delete()
@@ -104,23 +104,22 @@ async def index_chat(client, message):
         return await message.reply("You Send Two Different Chat Link, Try again and send same chat link")
            
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_index_{user_id}")]
+        [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
     ])
     progress = await message.reply_text(
-        f"📦 Indexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`\nSkip: `{current_msg_id}`",
+        f"♻️ Reindexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`\nSkip: `{current_msg_id}`",
         reply_markup=keyboard
     )
 
-    INDEXING[user_id] = True
+    REINDEXING[user_id] = True
     indexed = 0
     errors = 0
     unsupported = 0
-
+    count = 0
     try:
-        await mark_indexed_chat_async(target_chat_id, source_chat_ids)
         async for msg in iter_messages(client, source_chat_id, last_msg_id, current_msg_id):
-            if not INDEXING.get(user_id):
-                await progress.edit_text("🚫 Indexing cancelled.")
+            if not REINDEXING.get(user_id):
+                await progress.edit_text("🚫 Reindex cancelled.")
                 return
 
             if msg.empty:
@@ -139,13 +138,13 @@ async def index_chat(client, message):
                 msg.caption
                 or getattr(msg.video, "file_name", None)
                 or getattr(msg.document, "file_name", None)
-            )   
+            )
             if not msg_caption:
                 unsupported += 1
                 continue
 
             try:
-                details = extract_details(msg.caption)
+                details = extract_details(msg_caption)
                 await save_movie_async(
                     chat_id=target_chat_id,
                     title=details.get("title"),
@@ -156,63 +155,41 @@ async def index_chat(client, message):
                     season=details.get("season"),
                     episode=details.get("episode"),
                     codec=details.get("codec"),
-                    caption=msg.caption,
+                    caption=msg_caption,
                     link=msg.link
                 )
                 indexed += 1
                 if indexed % BATCH_SIZE == 0:
                     await asyncio.sleep(2)
                     await progress.edit_text(
-                        f"📈 Indexed: {indexed}\nUnsupported: {unsupported}\n⚠️ Failed: {errors}\n"
+                        f"♻️ Reindexing...\n✅ Indexed: {indexed}\n⚠️ Unsupported: {unsupported}\n❌ Failed: {errors}\n"
                         f"From `{source_chat_id}` → `{target_chat_id}`",
                         reply_markup=keyboard
                     )
-            except Exception as inner_e:
+
+            except Exception as e:
                 errors += 1
-                logger.info(f"⚠️ Skipped: {inner_e}")
+                logger.warning(f"⚠️ Save failed: {e}")
+
+        await rebuild_indexes()
+        await mark_indexed_chat_async(target_chat_id, source_chat_id)
 
         await progress.edit_text(
-            f"✅ Completed!\n📂 Indexed: <b>{indexed}</b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}</b>\n"
-            f"Linked `{source_chat_id}` → `{target_chat_id}`"
+            f"✅ Reindex Completed!\n\n"
+            f"📂 Indexed: {indexed}\n⚠️ Unsupported: {unsupported}\n❌ Failed: {errors}\n"
+            f"🔗 `{source_chat_id}` → `{target_chat_id}`"
         )
 
     except Exception as e:
-        await progress.edit_text(f"❌ Error: {e}")
-
+        await progress.edit_text(f"❌ Error during reindex: {e}")
+        logger.exception(e)
     finally:
-        INDEXING.pop(user_id, None)
+        REINDEXING.pop(user_id, None)
 
-@Client.on_callback_query(filters.regex(r"cancel_index_(\d+)"))
-async def cancel_index_callback(client, callback_query):
+
+@Client.on_callback_query(filters.regex(r"cancel_reindex_(\d+)"))
+async def cancel_reindex_callback(client, callback_query):
     user_id = int(callback_query.matches[0].group(1))
-    INDEXING[user_id] = False
+    REINDEXING[user_id] = False
     await callback_query.answer("Cancelled!", show_alert=True)
     await callback_query.message.edit_text("🚫 Indexing cancelled.")
-
-@Client.on_message(filters.command("delete"))
-async def delete_indexed_pair(client, message):
-    """
-    /delete <target_chat_id> <source_chat_id>
-    Removes mapping & deletes records for that target.
-    """
-    user_id = message.from_user.id
-    if user_id not in AUTHORIZED_USERS:
-        return
-        
-    parts = message.text.split()
-    if len(parts) < 3:
-        return await message.reply_text("Usage: `/delete target_chat_id source_chat_id`")
-
-    target_chat_id = int(parts[1])
-    source_chat_id = int(parts[2])
-
-    try:
-        mongo_deleted = await delete_chat_data_async(target_chat_id)
-        redis_deleted = await clear_redis_for_chat(target_chat_id) 
-        await unmark_indexed_chat_async(target_chat_id, source_chat_id)
-        await message.reply_text(
-            f"🗑 MongoDB: Deleted <b>{mongo_deleted} records and</b>\n Redis: Deleted {redis_deleted} keys For `{target_chat_id}`  "
-            f"and removed link with `{source_chat_id}`"
-        )
-    except Exception as e:
-        await message.reply_text(f"❌ Error: `{e}`")

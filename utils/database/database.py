@@ -14,7 +14,6 @@ db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 INDEXED_COLL = db["indexed_chats"]
 
-
 # ----------------------------
 # 🔹 INDEX MANAGEMENT
 # ----------------------------
@@ -25,11 +24,13 @@ async def drop_existing_indexes():
         for name in list(existing.keys()):
             if name != "_id_":
                 await collection.drop_index(name)
+
         existing_idx = await INDEXED_COLL.index_information()
         for name in list(existing_idx.keys()):
             if name != "_id_":
                 await INDEXED_COLL.drop_index(name)
-        logger.info("🧹 Dropped all old indexes")
+
+        logger.info("🧹 Dropped all old indexes successfully")
     except Exception as e:
         logger.exception(f"Failed to drop indexes: {e}")
 
@@ -86,7 +87,7 @@ def _safe_int(value):
             if re.match(r"^\d+$", val):
                 return int(val)
             if "-" in val or "complete" in val.lower():
-                return val  # keep strings like "1-12" or "Complete"
+                return val
         return None
     except Exception:
         return None
@@ -124,11 +125,15 @@ async def save_movie_async(chat_id: int, title: str = None, year: int = None,
         return None
 
 
-async def delete_chat_data_async(chat_id: int, source_chat: int = None):
-    """Delete all records from a chat, optionally limited by source."""
+async def delete_chat_data_async(chat_id: int):
+    """Delete all records for a specific chat."""
     try:
         query = {"chat_id": int(chat_id)}
         count = await collection.count_documents(query)
+        if count == 0:
+            logger.info(f"⚠️ No records found for chat {chat_id}")
+            return 0
+
         res = await collection.delete_many(query)
         logger.info(f"🗑️ Deleted {res.deleted_count}/{count} docs for chat {chat_id}")
         return res.deleted_count
@@ -150,8 +155,8 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
     skip = (page - 1) * limit
 
     text_filter = {"chat_id": int(chat_id), "$text": {"$search": query}}
-
     regex_filters = []
+
     for w in words:
         safe = re.escape(w)
         regex_filters.append({
@@ -223,11 +228,17 @@ async def mark_indexed_chat_async(target_chat: int, source_chat: int):
         logger.exception("mark_indexed_chat_async failed")
 
 
-async def unmark_indexed_chat_async(target_chat: int, source_chat: int):
-    """Unlink a target-source pair."""
+async def unmark_indexed_chat_async(target_chat: int, source_chat: int = None):
+    """Remove mapping(s) for a target-source pair or entire target."""
     try:
-        await INDEXED_COLL.delete_one({"target_chat": target_chat, "source_chat": source_chat})
-        logger.info(f"❌ Unlinked target {target_chat} from source {source_chat}")
+        if source_chat:
+            result = await INDEXED_COLL.delete_one(
+                {"target_chat": target_chat, "source_chat": source_chat}
+            )
+            logger.info(f"❌ Unlinked target {target_chat} from source {source_chat} ({result.deleted_count} removed)")
+        else:
+            result = await INDEXED_COLL.delete_many({"target_chat": target_chat})
+            logger.info(f"❌ Unlinked all mappings for target {target_chat} ({result.deleted_count} removed)")
     except Exception:
         logger.exception("unmark_indexed_chat_async failed")
 
@@ -235,7 +246,9 @@ async def unmark_indexed_chat_async(target_chat: int, source_chat: int):
 async def get_targets_for_source_async(source_chat: int):
     """Get all targets linked to a source."""
     try:
-        docs = await INDEXED_COLL.find({"source_chat": source_chat}, {"target_chat": 1}).to_list(length=None)
+        docs = await INDEXED_COLL.find(
+            {"source_chat": source_chat}, {"target_chat": 1}
+        ).to_list(length=None)
         return [d["target_chat"] for d in docs]
     except Exception:
         logger.exception("get_targets_for_source_async failed")
@@ -245,7 +258,9 @@ async def get_targets_for_source_async(source_chat: int):
 async def get_sources_for_target_async(target_chat: int):
     """Get all sources linked to a target."""
     try:
-        docs = await INDEXED_COLL.find({"target_chat": target_chat}, {"source_chat": 1}).to_list(length=None)
+        docs = await INDEXED_COLL.find(
+            {"target_chat": target_chat}, {"source_chat": 1}
+        ).to_list(length=None)
         return [d["source_chat"] for d in docs]
     except Exception:
         logger.exception("get_sources_for_target_async failed")

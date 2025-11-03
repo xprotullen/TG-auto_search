@@ -9,5 +9,6 @@ from .database import (
     get_sources_for_target_async,
     collection, 
     is_chat_linked_async, 
-    INDEXED_COLL
+    INDEXED_COLL,
+    rebuild_indexes
 )      

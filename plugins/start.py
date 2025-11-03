@@ -2,10 +2,11 @@ import time
 import humanize
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import RPCError
 from utils.database import collection, ensure_indexes, INDEXED_COLL
 from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
-from .search import rdb  
+from .search import rdb, clear_redis_for_chat
 from info import AUTHORIZED_USERS
 import logging
 
@@ -22,16 +23,21 @@ async def start_command(client, message):
         "Here’s how to use me:\n"
         "━━━━━━━━━━━━━━━\n"
         "🧩 <b>1. Index Source Chats:</b>\n"
-        "Use `/index <target_chat_id> <source_chat_id>`\n"
+        "Use <code>/index &lt;target_chat_id&gt; &lt;source_chat_id&gt;</code>\n"
         "to link a group with a source channel.\n\n"
         "🗑 <b>2. Delete Indexed Data:</b>\n"
-        "Use `/delete <target_chat_id> <source_chat_id>` to unlink.\n\n"
+        "Use <code>/delete &lt;target_chat_id&gt; &lt;source_chat_id&gt;</code> to unlink.\n\n"
         "🔍 <b>3. Search:</b>\n"
         "Simply send a movie name in your group to search.\n\n"
-        "/resetdb - clean database\n\n"
+        "🧹 <b>Utility Commands:</b>\n"
+        "<code>/resetdb</code> - Clean MongoDB database\n"
+        "<code>/reindex</code> - Reindex chat messages\n"
+        "<code>/clearcache</code> - Clear Redis cache for a specific chat\n"
+        "<code>/flushredis</code> - ⚠️ Clear entire Redis database (use with caution)\n\n"
         "⚙️ <b>Notes:</b>\n"
         "• Bot only works in authorized and linked chats.\n"
-        "• Use `/checkbot` to check MongoDB & Redis status.\n"
+        "• Use <code>/checkbot</code> to check MongoDB & Redis status.\n"
+        "• Userbot must be admin in source channel; new posts are saved automatically.\n"
         "• Avoid rapid button clicks to prevent FloodWaits."
     )
 
@@ -44,6 +50,66 @@ async def start_command(client, message):
         disable_web_page_preview=True
     )
 
+@Client.on_message(filters.command("flushredis") & filters.user(AUTHORIZED_USERS))
+async def confirm_flush_redis(client, message):
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes, clear all", callback_data=f"confirm_flush_{message.from_user.id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_flush_{message.from_user.id}")
+        ]
+    ])
+    await message.reply_text(
+        "⚠️ <b>Are you sure you want to clear the entire Redis database?</b>\n"
+        "This will remove <b>ALL</b> cached data for all chats — and cannot be undone!",
+        reply_markup=keyboard
+    )
+
+@Client.on_callback_query(filters.regex(r"^(confirm_flush|cancel_flush)_(\d+)$"))
+async def handle_flush_callback(client, query):
+    action = query.matches[0].group(1)
+    user_id = int(query.matches[0].group(2))
+
+    if query.from_user.id != user_id:
+        return await query.answer("⛔ Not your confirmation request!", show_alert=True)
+
+    if action == "cancel_flush":
+        await query.message.edit_text("❌ Redis flush cancelled.")
+        return
+
+    try:
+        await rdb.flushdb()
+        await query.message.edit_text("✅ Successfully cleared the entire Redis database.")
+    except Exception as e:
+        await query.message.edit_text(f"❌ Error while flushing Redis:\n<code>{e}</code>")
+        
+@Client.on_message(filters.command("clearcache"))
+async def clear_cache_cmd(client, message):
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        return await message.reply_text("🚫 You are not authorized to use this command.")
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        return await message.reply_text("Usage: `/clearcache <chat_id>`", quote=True)
+
+    try:
+        chat_id = int(parts[1])
+    except ValueError:
+        return await message.reply_text("❌ Invalid chat ID!", quote=True)
+
+    msg = await message.reply_text("🧹 Clearing Redis cache, please wait...")
+
+    try:
+        deleted = await clear_redis_for_chat(chat_id)
+        if deleted == 0:
+            await msg.edit_text(f"ℹ️ No Redis keys found for `{chat_id}`.")
+        else:
+            await msg.edit_text(f"✅ Cleared `{deleted}` Redis cache keys for chat `{chat_id}`.")
+    except RPCError as e:
+        await msg.edit_text(f"⚠️ Telegram RPC Error: {e}")
+    except Exception as e:
+        await msg.edit_text(f"❌ Unexpected error: {e}")    
+        
 @Client.on_message(filters.command("resetdb") & filters.private)
 async def resetdb_handler(client, message):
     """Drop full movie database only after confirmation."""
@@ -61,7 +127,8 @@ async def resetdb_handler(client, message):
         msg = await message.reply("🧹 Resetting database... please wait.")
         await collection.drop()            
         await INDEXED_COLL.drop_indexes()  
-        await ensure_indexes()            
+        await ensure_indexes()
+        await rdb.flushdb()
         await msg.edit_text("✅ Database reset successfully!\nAll data wiped and indexes rebuilt.")
 
         logger.info("✅ Database reset by user %s", user_id)
