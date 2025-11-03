@@ -120,7 +120,7 @@ async def reindex_chat(client, message):
             filter=MessagesFilter.EMPTY,  # Fetch all messages
             offset=0
         ):
-            if not INDEXING.get(user_id):
+            if not REINDEXING.get(user_id):
                 await progress.edit_text("🚫 Indexing cancelled.")
                 return
                 
