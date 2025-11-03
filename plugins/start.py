@@ -23,16 +23,21 @@ async def start_command(client, message):
         "Here’s how to use me:\n"
         "━━━━━━━━━━━━━━━\n"
         "🧩 <b>1. Index Source Chats:</b>\n"
-        "Use `/index <target_chat_id> <source_chat_id>`\n"
+        "Use <code>/index &lt;target_chat_id&gt; &lt;source_chat_id&gt;</code>\n"
         "to link a group with a source channel.\n\n"
         "🗑 <b>2. Delete Indexed Data:</b>\n"
-        "Use `/delete <target_chat_id> <source_chat_id>` to unlink.\n\n"
+        "Use <code>/delete &lt;target_chat_id&gt; &lt;source_chat_id&gt;</code> to unlink.\n\n"
         "🔍 <b>3. Search:</b>\n"
         "Simply send a movie name in your group to search.\n\n"
-        "/resetdb - clean database\n\n"
+        "🧹 <b>Utility Commands:</b>\n"
+        "<code>/resetdb</code> - Clean MongoDB database\n"
+        "<code>/reindex</code> - Reindex chat messages\n"
+        "<code>/clearcache</code> - Clear Redis cache for a specific chat\n"
+        "<code>/flushredis</code> - ⚠️ Clear entire Redis database (use with caution)\n\n"
         "⚙️ <b>Notes:</b>\n"
         "• Bot only works in authorized and linked chats.\n"
-        "• Use `/checkbot` to check MongoDB & Redis status.\n"
+        "• Use <code>/checkbot</code> to check MongoDB & Redis status.\n"
+        "• Userbot must be admin in source channel; new posts are saved automatically.\n"
         "• Avoid rapid button clicks to prevent FloodWaits."
     )
 
@@ -121,7 +126,8 @@ async def resetdb_handler(client, message):
         msg = await message.reply("🧹 Resetting database... please wait.")
         await collection.drop()            
         await INDEXED_COLL.drop_indexes()  
-        await ensure_indexes()            
+        await ensure_indexes()
+        await rdb.flushdb()
         await msg.edit_text("✅ Database reset successfully!\nAll data wiped and indexes rebuilt.")
 
         logger.info("✅ Database reset by user %s", user_id)
