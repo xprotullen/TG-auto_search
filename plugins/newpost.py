@@ -2,7 +2,7 @@ import logging
 from pyrogram import filters
 from pyrogram.types import Message
 from utils.database import get_targets_for_source_async, save_movie_async
-from utils.extract import extract_details
+from utils import extract_details
 
 logger = logging.getLogger(__name__)
 
