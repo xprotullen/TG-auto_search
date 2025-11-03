@@ -108,7 +108,7 @@ async def reindex_chat(client, message):
     unsupported = 0
     count = 0
     try:
-        async for msg in client.USER.get_chat_history(chat_id, reverse=True):
+        async for msg in client.USER.get_chat_history(source_chat_id, reverse=True):
             if count < skip_count:
                 count += 1
                 continue
