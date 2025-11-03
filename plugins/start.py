@@ -1,7 +1,7 @@
 import time
 import humanize
 from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.errors import RPCError
 from utils.database import collection, ensure_indexes, INDEXED_COLL
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -45,7 +45,37 @@ async def start_command(client, message):
         disable_web_page_preview=True
     )
 
+@Client.on_message(filters.command("flushredis") & filters.user(AUTHORIZED_USERS))
+async def confirm_flush_redis(client, message):
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes, clear all", callback_data=f"confirm_flush_{message.from_user.id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_flush_{message.from_user.id}")
+        ]
+    ])
+    await message.reply_text(
+        "⚠️ <b>Are you sure you want to clear the entire Redis database?</b>\n"
+        "This will remove <b>ALL</b> cached data for all chats — and cannot be undone!",
+        reply_markup=keyboard
+    )
 
+
+@Client.on_callback_query(filters.regex(r"^(confirm_flush_|cancel_flush_)\d+$"))
+async def handle_flush_callback(client, query: CallbackQuery):
+    user_id = query.from_user.id
+    action, target_id = query.data.split("_")[0], int(query.data.split("_")[2])
+    if user_id != target_id:
+        return await query.answer("⛔ Not your confirmation request!", show_alert=True)
+
+    if action == "cancel":
+        await query.message.edit_text("❌ Redis flush cancelled.")
+        return
+    try:
+        await rdb.flushdb()
+        await query.message.edit_text("✅ Successfully cleared the entire Redis database.")
+    except Exception as e:
+        await query.message.edit_text(f"❌ Error while flushing Redis:\n<code>{e}</code>")
+        
 @Client.on_message(filters.command("clearcache"))
 async def clear_cache_cmd(client, message):
     user_id = message.from_user.id
