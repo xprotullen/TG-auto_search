@@ -105,7 +105,7 @@ async def reindex_chat(client, message):
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
     ])
     progress = await message.reply_text(
-        f"♻️ Reindexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`\nSkip: `{current_msg_id}`",
+        f"♻️ Reindexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`",
         reply_markup=keyboard
     )
 
