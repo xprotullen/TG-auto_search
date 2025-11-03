@@ -12,7 +12,7 @@ from utils.database import (
     unmark_indexed_chat_async,
     get_targets_for_source_async
 )
-from utils import extract_details, iter_messages, ask_for_message_link_or_id
+from utils import extract_details
 from info import AUTHORIZED_USERS
 
 INDEXING = {}
@@ -35,7 +35,6 @@ async def index_chat(client, message):
 
     target_chat_id = int(parts[1])
     source_chat_id = int(parts[2])
-    source_chat_ids = source_chat_id
     user_id = message.from_user.id
 
     try:
@@ -84,30 +83,12 @@ async def index_chat(client, message):
             f"To reindex, run `/delete {target_chat_id} {source_chat_id}` first."
         )
         
-    prompt = await message.reply("✏️ Please send a Start <b>message ID</b>or <b>message link</b>: where u wana start indexing")
-    reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
-    await prompt.delete()
-    try:
-        first_c, current_msg_id = await ask_for_message_link_or_id(message, source_chat_id, reply.text)
-    except Exception as e:
-        return await message.reply("Error {e}!")
-
-    prompt = await message.reply("✏️ Please send a Last <b>message ID</b>or <b>message link</b>: where u wana stop indexing")
-    reply = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
-    await prompt.delete()
-    try:
-        source_chat_id, last_msg_id = await ask_for_message_link_or_id(message, source_chat_id, reply.text)
-    except Exception as e:
-        return await message.reply("Error {e}!")
-    
-    if first_c != source_chat_id:
-        return await message.reply("You Send Two Different Chat Link, Try again and send same chat link")
-           
+      
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_index_{user_id}")]
     ])
     progress = await message.reply_text(
-        f"📦 Indexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`\nSkip: `{current_msg_id}`",
+        f"📦 Indexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`",
         reply_markup=keyboard
     )
 
@@ -117,15 +98,14 @@ async def index_chat(client, message):
     unsupported = 0
 
     try:
-        await mark_indexed_chat_async(target_chat_id, source_chat_ids)
-        async for msg in iter_messages(client, source_chat_id, last_msg_id, current_msg_id):
+        async for msg in client.USER.search_messages(
+            source_chat_id,
+            filter=MessagesFilter.EMPTY,  # Fetch all messages
+            offset=0
+        ):
             if not INDEXING.get(user_id):
                 await progress.edit_text("🚫 Indexing cancelled.")
                 return
-
-            if msg.empty:
-                unsupported += 1
-                continue
 
             if not msg.media:
                 unsupported += 1
@@ -170,7 +150,8 @@ async def index_chat(client, message):
             except Exception as inner_e:
                 errors += 1
                 logger.info(f"⚠️ Skipped: {inner_e}")
-
+         
+        await mark_indexed_chat_async(target_chat_id, source_chat_ids)
         await progress.edit_text(
             f"✅ Completed!\n📂 Indexed: <b>{indexed}</b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}</b>\n"
             f"Linked `{source_chat_id}` → `{target_chat_id}`"
