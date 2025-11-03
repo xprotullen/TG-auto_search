@@ -4,6 +4,7 @@ from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import RPCError
+from .search import clear_redis_for_chat
 from utils.database import (
     save_movie_async,
     delete_chat_data_async,
@@ -229,10 +230,11 @@ async def delete_indexed_pair(client, message):
     source_chat_id = int(parts[2])
 
     try:
-        deleted = await delete_chat_data_async(target_chat_id)
+        mongo_deleted = await delete_chat_data_async(target_chat_id)
+        redis_deleted = await clear_redis_for_chat(target_chat_id) 
         await unmark_indexed_chat_async(target_chat_id, source_chat_id)
         await message.reply_text(
-            f"🗑 Deleted <b>{deleted}</b> records for `{target_chat_id}` "
+            f"🗑 MongoDB: Deleted <b>{mongo_deleted} records and</b>\n Redis: Deleted {redis_deleted} keys For `{target_chat_id}`  "
             f"and removed link with `{source_chat_id}`"
         )
     except Exception as e:
