@@ -10,6 +10,7 @@ from info import REDIS_HOST, REDIS_PORT, REDIS_USERNAME, REDIS_PASSWORD
 from pyrogram.errors import FloodWait, MessageNotModified
 import asyncio
 
+# ---------------- REDIS CONNECTION ---------------- #
 rdb = redis.Redis(
     host=REDIS_HOST,
     port=REDIS_PORT,
@@ -18,11 +19,12 @@ rdb = redis.Redis(
     decode_responses=True
 )
 
+# ---------------- CONFIG ---------------- #
 CACHE_TTL = 3600         # Cache for 1 hour
 RESULTS_PER_PAGE = 10    # Results per page
 MAX_RESULTS = 500        # Max results stored per search
 
-# ---------------- JSON ENCODER (Fix ObjectId) ---------------- #
+# ---------------- JSON ENCODER ---------------- #
 class JSONEncoder(json.JSONEncoder):
     """Make ObjectId JSON serializable."""
     def default(self, o):
@@ -33,36 +35,49 @@ class JSONEncoder(json.JSONEncoder):
 
 # ---------------- UTILITIES ---------------- #
 def make_cache_key(chat_id: int, query: str) -> str:
-    """Unique Redis key for user's query."""
+    """Generate a unique Redis key for a user's query."""
     raw = f"{chat_id}:{query.strip().lower()}"
     return "movie_search:" + hashlib.md5(raw.encode()).hexdigest()
 
 
 async def get_cached_results(chat_id: int, query: str):
+    """Fetch cached search results from Redis."""
     key = make_cache_key(chat_id, query)
     raw = await rdb.get(key)
     return json.loads(raw) if raw else None
 
 
 async def set_cached_results(chat_id: int, query: str, results: list):
-    """Cache search results in Redis with JSON-safe encoding."""
+    """
+    Cache search results in Redis with a per-chat tracking set.
+    """
     key = make_cache_key(chat_id, query)
     payload = json.dumps({"results": results, "total": len(results)}, cls=JSONEncoder)
+
+    # Store the main search cache
     await rdb.setex(key, CACHE_TTL, payload)
 
+    # Track this cache key in the chat's set
+    await rdb.sadd(f"chat_cache_keys:{chat_id}", key)
+
+
 async def clear_redis_for_chat(chat_id: int):
-    """Remove all Redis cache keys belonging to a given chat."""
-    pattern = f"movie_search:*"
-    keys = await rdb.keys(pattern)
+    """
+    Efficiently clear all Redis cache entries belonging to a chat.
+    Deletes both cache keys and the chat tracking set.
+    """
+    set_key = f"chat_cache_keys:{chat_id}"
+    keys = await rdb.smembers(set_key)
     if not keys:
         return 0
 
-    deleted = 0
-    for key in keys:
-        if f"{chat_id}:" in key:  # each key includes chat_id in its hash seed
-            await rdb.delete(key)
-            deleted += 1
-    return deleted
+    # Delete all movie_search keys
+    await rdb.delete(*keys)
+
+    # Delete the set itself
+    await rdb.delete(set_key)
+
+    return len(keys)
     
 # ---------------- SEARCH HANDLER ---------------- #
 @Client.on_message(filters.group & filters.text)
