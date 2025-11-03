@@ -180,3 +180,11 @@ async def reindex_chat(client, message):
         logger.exception(e)
     finally:
         REINDEXING.pop(user_id, None)
+
+
+@Client.on_callback_query(filters.regex(r"cancel_reindex_(\d+)"))
+async def cancel_reindex_callback(client, callback_query):
+    user_id = int(callback_query.matches[0].group(1))
+    REINDEXING[user_id] = False
+    await callback_query.answer("Cancelled!", show_alert=True)
+    await callback_query.message.edit_text("🚫 Indexing cancelled.")
