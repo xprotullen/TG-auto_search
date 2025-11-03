@@ -116,6 +116,14 @@ async def index_chat(client, message):
                 await progress.edit_text("🚫 Indexing cancelled.")
                 return
 
+            if msg.empty:
+                unsupported += 1
+                continue
+
+            if not msg.media:
+                unsupported += 1
+                continue
+                
             if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
                 unsupported += 1
                 continue
