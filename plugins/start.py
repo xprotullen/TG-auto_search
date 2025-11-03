@@ -1,7 +1,7 @@
 import time
 import humanize
 from pyrogram import Client, filters, enums
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import RPCError
 from utils.database import collection, ensure_indexes, INDEXED_COLL
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -64,17 +64,18 @@ async def confirm_flush_redis(client, message):
         reply_markup=keyboard
     )
 
+@Client.on_callback_query(filters.regex(r"^(confirm_flush|cancel_flush)_(\d+)$"))
+async def handle_flush_callback(client, query):
+    action = query.matches[0].group(1)
+    user_id = int(query.matches[0].group(2))
 
-@Client.on_callback_query(filters.regex(r"^(confirm_flush_|cancel_flush_)\d+$"))
-async def handle_flush_callback(client, query: CallbackQuery):
-    user_id = query.from_user.id
-    action, target_id = query.data.split("_")[0], int(query.data.split("_")[2])
-    if user_id != target_id:
+    if query.from_user.id != user_id:
         return await query.answer("⛔ Not your confirmation request!", show_alert=True)
 
-    if action == "cancel":
+    if action == "cancel_flush":
         await query.message.edit_text("❌ Redis flush cancelled.")
         return
+
     try:
         await rdb.flushdb()
         await query.message.edit_text("✅ Successfully cleared the entire Redis database.")
