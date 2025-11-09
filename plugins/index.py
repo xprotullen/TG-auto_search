@@ -120,7 +120,6 @@ async def index_chat(client, message):
                 continue
 
             try:
-                # ✅ Each save in inner try
                 details = extract_details(msg_caption)
                 await save_movie_async(
                     chat_id=target_chat_id,
