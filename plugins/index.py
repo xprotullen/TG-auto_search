@@ -161,15 +161,11 @@ async def index_chat(client, message):
                 if not INDEXING.get(user_id):
                     await progress.edit_text("🚫 Indexing cancelled.")
                     return
-                    
-                if msg.id < start_msg_id or msg.id > last_msg_id:
-                    continue 
 
-                if not msg.media:
-                    unsupported += 1
+                if msg.id < start_msg_id or msg.id > last_msg_id:
                     continue
 
-                if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
+                if not msg.media or msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
                     unsupported += 1
                     continue
 
@@ -191,49 +187,48 @@ async def index_chat(client, message):
                     skipped_uid += 1
                     continue
 
-                try:
-                    details = extract_details(caption)
-                    result = await save_movie_async(
-                        chat_id=target_chat_id,
-                        title=details.get("title"),
-                        year=details.get("year"),
-                        quality=details.get("quality"),
-                        lang=details.get("lang"),
-                        print_type=details.get("print"),
-                        season=details.get("season"),
-                        episode=details.get("episode"),
-                        codec=details.get("codec"),
-                        caption=caption,
-                        link=msg.link,
-                        file_unique_id=file_uid
+                details = extract_details(caption)
+                result = await save_movie_async(
+                    chat_id=target_chat_id,
+                    title=details.get("title"),
+                    year=details.get("year"),
+                    quality=details.get("quality"),
+                    lang=details.get("lang"),
+                    print_type=details.get("print"),
+                    season=details.get("season"),
+                    episode=details.get("episode"),
+                    codec=details.get("codec"),
+                    caption=caption,
+                    link=msg.link,
+                    file_unique_id=file_uid
+                )
+
+                if result == "saved":
+                    indexed += 1
+                elif result == "duplicate":
+                    duplicates += 1
+                else:
+                    errors += 1
+
+                total = indexed + duplicates + errors + unsupported
+                if total % BATCH_SIZE == 0:
+                    await asyncio.sleep(2)
+                    await progress.edit_text(
+                        f"📈 Indexing Progress\n"
+                        f"✅ Indexed: {indexed}\n"
+                        f"⏩ Duplicates: {duplicates}\n"
+                        f"❎ Skipped (no UID): {skipped_uid}\n"                       
+                        f"⚠️ Unsupported: {unsupported}\n"
+                        f"❌ Failed: {errors}\n"
+                        f"From `{source_chat_id}` → `{target_chat_id}`",
+                        reply_markup=keyboard
                     )
 
-                    if result == "saved":
-                        indexed += 1
-                    elif result == "duplicate":
-                        duplicates += 1
-                    else:
-                        errors += 1
-
-                    total = indexed + duplicates + errors + unsupported
-                    if total % BATCH_SIZE == 0:
-                        await asyncio.sleep(2)
-                        await progress.edit_text(
-                            f"📈 Indexing Progress\n"
-                            f"✅ Indexed: {indexed}\n"
-                            f"⏩ Duplicates: {duplicates}\n"
-                            f"❎ Skipped (no UID): {skipped_uid}\n"
-                            f"⚠️ Unsupported: {unsupported}\n"
-                            f"❌ Failed: {errors}\n"
-                            f"From `{source_chat_id}` → `{target_chat_id}`",
-                            reply_markup=keyboard
-                        )
-
-                except FloodWait as fw:
-                    await asyncio.sleep(fw.value)
-                except Exception as inner_e:
-                    errors += 1
-                    logger.warning(f"⚠️ Skipped message due to error: {inner_e}")
+            except FloodWait as fw:
+                await asyncio.sleep(fw.value)
+            except Exception as inner_e:
+                errors += 1
+                logger.warning(f"⚠️ Skipped message due to error: {inner_e}")
 
         await mark_indexed_chat_async(target_chat_id, source_chat_id)
         await progress.edit_text(
@@ -245,6 +240,7 @@ async def index_chat(client, message):
     except Exception as e:
         await progress.edit_text(f"❌ Error during indexing: {e}")
         logger.exception(e)
+
     finally:
         INDEXING.pop(user_id, None)
 
