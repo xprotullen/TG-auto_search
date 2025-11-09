@@ -22,10 +22,6 @@ BATCH_SIZE = 50
 
 @Client.on_message(filters.command("reindex"))
 async def reindex_chat(client, message):
-    """
-    /reindex <target_chat_id> <source_chat_id>
-    Example: /reindex -1001234 -1005678
-    """
     user_id = message.from_user.id
     if user_id not in AUTHORIZED_USERS:
         return
@@ -37,45 +33,40 @@ async def reindex_chat(client, message):
     target_chat_id = int(parts[1])
     source_chat_id = int(parts[2])
 
+    if REINDEXING.get(user_id):
+        return await message.reply_text("⚠️ Reindexing already running! Please wait or cancel it first.")
+
     try:
         bot_member = await client.get_chat_member(target_chat_id, "me")
-    except RPCError as e:
-        return await message.reply_text(f"⚠️ Telegram Error (target): {e}")
+        if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+            return await message.reply_text("❌ Bot must be admin in target chat!")
     except Exception as e:
-        return await message.reply_text(f"❌ Unexpected error in target chat: {e}")
-    if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-        return await message.reply_text("❌ Bot must be admin in target chat!")
+        return await message.reply_text(f"⚠️ Error accessing target chat: {e}")
 
     try:
         user_member = await client.get_chat_member(target_chat_id, user_id)
-    except RPCError as e:
-        return await message.reply_text(f"⚠️ Telegram Error (target user): {e}")
+        if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+            return await message.reply_text("❌ You must be admin in target chat to start reindexing!")
     except Exception as e:
-        return await message.reply_text(f"❌ Unexpected error checking user in target chat: {e}")
-    if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-        return await message.reply_text("❌ You must be admin in target chat to start reindexing!")
+        return await message.reply_text(f"⚠️ Error verifying user permissions: {e}")
 
     try:
         bot_member_source = await client.get_chat_member(source_chat_id, "me")
-    except RPCError as e:
-        return await message.reply_text(f"⚠️ Telegram Error (source): {e}")
+        if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+            return await message.reply_text("❌ Bot must be admin in source chat!")
     except Exception as e:
-        return await message.reply_text(f"❌ Unexpected error in source chat: {e}")
-    if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-        return await message.reply_text("❌ Bot must be admin in source chat to fetch messages!")
+        return await message.reply_text(f"⚠️ Error accessing source chat: {e}")
 
     try:
         userbot_member = await client.USER.get_chat_member(source_chat_id, "me")
-    except RPCError as e:
-        return await message.reply_text(f"⚠️ Telegram Error (userbot): {e}")
+        if userbot_member.status not in [
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.OWNER,
+            ChatMemberStatus.MEMBER
+        ]:
+            return await message.reply_text("❌ Userbot must be at least a member in source chat!")
     except Exception as e:
-        return await message.reply_text(f"❌ Userbot can't access source chat: {e}")
-    if userbot_member.status not in [
-        ChatMemberStatus.ADMINISTRATOR,
-        ChatMemberStatus.OWNER,
-        ChatMemberStatus.MEMBER
-    ]:
-        return await message.reply_text("❌ Userbot must be at least a member in source chat!")
+        return await message.reply_text(f"⚠️ Userbot can't access source chat: {e}")
 
     await message.reply_text(f"🗑️ Deleting old MongoDB and Redis data for `{target_chat_id}`...")
     deleted_mongo = await delete_chat_data_async(chat_id=target_chat_id)
@@ -91,24 +82,25 @@ async def reindex_chat(client, message):
     )
 
     REINDEXING[user_id] = True
+
     indexed = 0
     errors = 0
     unsupported = 0
-    count = 0
+
     try:
         async for msg in client.USER.search_messages(
             source_chat_id,
-            filter=MessagesFilter.EMPTY,  # Fetch all messages
+            filter=MessagesFilter.EMPTY,
             offset=0
         ):
             if not REINDEXING.get(user_id):
                 await progress.edit_text("🚫 Indexing cancelled.")
                 return
-                
+
             if not msg.media:
                 unsupported += 1
                 continue
-                
+
             if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
                 unsupported += 1
                 continue
@@ -117,7 +109,7 @@ async def reindex_chat(client, message):
                 msg.caption
                 or getattr(msg.video, "file_name", None)
                 or getattr(msg.document, "file_name", None)
-            )   
+            )
             if not msg_caption:
                 unsupported += 1
                 continue
@@ -138,6 +130,7 @@ async def reindex_chat(client, message):
                     link=msg.link
                 )
                 indexed += 1
+
                 if indexed % BATCH_SIZE == 0:
                     await asyncio.sleep(2)
                     await progress.edit_text(
@@ -147,7 +140,7 @@ async def reindex_chat(client, message):
                     )
             except Exception as inner_e:
                 errors += 1
-                logger.info(f"⚠️ Skipped: {inner_e}")
+                logger.warning(f"⚠️ Skipped message due to error: {inner_e}")
 
         await rebuild_indexes()
         await mark_indexed_chat_async(target_chat_id, source_chat_id)
@@ -161,6 +154,7 @@ async def reindex_chat(client, message):
     except Exception as e:
         await progress.edit_text(f"❌ Error during reindex: {e}")
         logger.exception(e)
+
     finally:
         REINDEXING.pop(user_id, None)
 
