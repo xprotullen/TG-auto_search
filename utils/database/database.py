@@ -14,6 +14,7 @@ db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 INDEXED_COLL = db["indexed_chats"]
 
+
 async def drop_existing_indexes():
     """Drop all existing indexes safely."""
     try:
@@ -45,6 +46,13 @@ async def ensure_indexes():
 
         for field in ["chat_id", "quality", "lang", "print", "season", "episode", "codec"]:
             await collection.create_index(field, background=True)
+
+        await collection.create_index(
+            [("chat_id", 1), ("file_unique_id", 1)],
+            unique=True,
+            background=True,
+            name="unique_file_per_chat"
+        )
 
         await INDEXED_COLL.create_index("target_chat", background=True)
         await INDEXED_COLL.create_index("source_chat", background=True)
@@ -90,11 +98,25 @@ def _safe_int(value):
 async def save_movie_async(chat_id: int, title: str = None, year: int = None,
                            quality: str = None, lang: str = None, print_type: str = None,
                            season=None, episode=None, codec: str = None,
-                           caption: str = None, link: str = None):
-    """Save a single movie entry."""
+                           caption: str = None, link: str = None,
+                           file_unique_id: str = None):
+
     try:
+        if not file_unique_id:
+            logger.warning("⚠️ Skipped: Missing file_unique_id.")
+            return "error"
+
+        existing = await collection.find_one({
+            "chat_id": int(chat_id),
+            "file_unique_id": file_unique_id
+        })
+        if existing:
+            logger.info(f"⏩ Duplicate skipped ({file_unique_id}) in chat {chat_id}")
+            return "duplicate"
+
         doc = {
             "chat_id": int(chat_id),
+            "file_unique_id": file_unique_id,
             "title": title.strip() if title else None,
             "year": int(year) if year else None,
             "quality": quality,
@@ -108,12 +130,16 @@ async def save_movie_async(chat_id: int, title: str = None, year: int = None,
         }
 
         clean_doc = {k: v for k, v in doc.items() if v is not None}
-        result = await collection.insert_one(clean_doc)
+        await collection.insert_one(clean_doc)
         logger.info(f"✅ Saved: {title or 'Untitled'} ({chat_id})")
-        return str(result.inserted_id)
-    except Exception:
+        return "saved"
+
+    except Exception as e:
+        if "duplicate key error" in str(e).lower():
+            logger.info(f"⚠️ Duplicate prevented for {file_unique_id}")
+            return "duplicate"
         logger.exception("❌ save_movie_async failed")
-        return None
+        return "error"
 
 
 async def delete_chat_data_async(chat_id: int):
