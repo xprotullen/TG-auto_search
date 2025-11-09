@@ -265,7 +265,18 @@ async def is_source_linked_to_target(target_chat: int, source_chat: int):
         logger.exception("get_sources_for_target_async failed")
         return False
 
-
+async def is_source_in_db(source_chat: int) -> bool:
+    """Check if the given source_chat exists in DB."""
+    try:
+        doc = await INDEXED_COLL.find_one(
+            {"source_chat": source_chat},
+            {"_id": 1}
+        )
+        return bool(doc)
+    except Exception:
+        logger.exception("is_source_in_db failed")
+        return False
+        
 async def is_chat_linked_async(target_chat: int) -> bool:
     """Check if target chat is already linked."""
     try:
