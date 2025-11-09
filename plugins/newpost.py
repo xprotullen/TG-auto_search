@@ -1,25 +1,20 @@
 import logging
 from pyrogram import filters
 from pyrogram.types import Message
-from utils.database import get_targets_for_source_async, save_movie_async
+from utils.database import is_source_in_db, save_movie_async
 from utils import extract_details
 
 logger = logging.getLogger(__name__)
 
 def register_userbot_handlers(user_client):
-    """Attach media auto-index listener to userbot."""
     
     @user_client.on_message((filters.group | filters.channel) & (filters.document | filters.video))
     async def auto_index_new_post(client, message: Message):
-        """
-        Triggered whenever a new media (video/document) is posted in a linked source.
-        Works for user, admin, or even other bots.
-        """
         from_chat = message.chat.id
         try:
-            targets = await get_targets_for_source_async(from_chat)
-            if not targets:
-                return  # Not a tracked source group/channel
+            source = await is_source_in_db(from_chat)
+            if not source:
+                return
 
             msg_caption = (
                 message.caption
@@ -28,6 +23,11 @@ def register_userbot_handlers(user_client):
             )
             if not msg_caption:
                 return
+                
+            file_uid = (
+                getattr(message.video, "file_unique_id", None)
+                or getattr(message.document, "file_unique_id", None)
+            )
 
             details = extract_details(msg_caption)
 
@@ -43,7 +43,8 @@ def register_userbot_handlers(user_client):
                     episode=details.get("episode"),
                     codec=details.get("codec"),
                     caption=message.caption,
-                    link=message.link
+                    link=message.link,
+                    file_unique_id=file_uid
                 )
                 logger.info(f"✅ Auto-indexed post from {from_chat} → {target_chat}")
 
