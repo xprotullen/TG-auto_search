@@ -102,10 +102,12 @@ async def index_chat(client, message):
     await prompt.delete()
 
     last_msg_id = None
-    if getattr(user_msg, "forward_from_chat", None):
-        if user_msg.forward_from_chat.id != source_chat_id:
+
+    if getattr(user_msg, "forward_origin", None) and getattr(user_msg.forward_origin, "chat", None):
+        forward_chat = getattr(user_msg.forward_origin.chat, "sender_chat", None) or user_msg.forward_origin.chat
+        if forward_chat.id != source_chat_id:
             return await message.reply_text("❌ Message must be from the same source chat!")
-        last_msg_id = user_msg.forward_from_message_id
+        last_msg_id = user_msg.forward_from_message_id or user_msg.id
     elif getattr(user_msg, "text", None) and user_msg.text.startswith("https://t.me"):
         try:
             parts = user_msg.text.rstrip("/").split("/")
@@ -124,9 +126,9 @@ async def index_chat(client, message):
             last_msg_id = msg_id
         except Exception:
             return await message.reply_text("❌ Invalid t.me link format!")
+
     else:
         return await message.reply_text("❌ Invalid input! Must forward a message or provide a t.me link.")
-   
     s = await message.reply_text("✏️ Enter number of messages to skip from start (0 for none):")
     skip_msg = await client.listen(chat_id=message.chat.id, user_id=user_id)
     await s.delete()
