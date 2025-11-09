@@ -10,7 +10,7 @@ from utils.database import (
     delete_chat_data_async,
     mark_indexed_chat_async,
     unmark_indexed_chat_async,
-    get_targets_for_source_async
+    is_source_linked_to_target
 )
 from utils import extract_details
 from info import AUTHORIZED_USERS
@@ -67,11 +67,11 @@ async def index_chat(client, message):
     except Exception as e:
         return await message.reply_text(f"⚠️ Userbot can't access source chat: {e}")
         
-    if await get_targets_for_source_async(source_chat_id):
-        return await message.reply_text(
-            f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
-            f"To reindex, run `/delete {target_chat_id} {source_chat_id}` first."
-        )
+    if await is_source_linked_to_target(target_chat_id, source_chat_id):
+    return await message.reply_text(
+        f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
+        f"To reindex, run `/delete {target_chat_id} {source_chat_id}` first."
+    )
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_index_{user_id}")]
