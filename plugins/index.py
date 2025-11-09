@@ -3,7 +3,7 @@ import logging
 from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import RPCError
+from pyrogram.errors import RPCError, FloodWait
 from .search import clear_redis_for_chat
 from utils.database import (
     save_movie_async,
@@ -125,41 +125,49 @@ async def index_chat(client, message):
                     skipped_uid += 1
                     continue
 
-                details = extract_details(caption)
-                result = await save_movie_async(
-                    chat_id=target_chat_id,
-                    title=details.get("title"),
-                    year=details.get("year"),
-                    quality=details.get("quality"),
-                    lang=details.get("lang"),
-                    print_type=details.get("print"),
-                    season=details.get("season"),
-                    episode=details.get("episode"),
-                    codec=details.get("codec"),
-                    caption=caption,
-                    link=msg.link,
-                    file_unique_id=file_uid
-                )
-
-                if result == "duplicate":
-                    duplicates += 1
-                elif result == "saved":
-                    indexed += 1
-                else:
-                    errors += 1
-
-                if (indexed + duplicates + skipped_uid + unsupported + errors) % BATCH_SIZE == 0:
-                    await asyncio.sleep(2)
-                    await progress.edit_text(
-                        f"📈 Indexed: {indexed}\n⏩ Duplicates: {duplicates}\n⚠️ Failed: {errors}\n"
-                        f"❎ Skipped (no UID): {skipped_uid}\nUnsupported: {unsupported}\n"
-                        f"From `{source_chat_id}` → `{target_chat_id}`",
-                        reply_markup=keyboard
+                try:
+                    details = extract_details(caption)
+                    result = await save_movie_async(
+                        chat_id=target_chat_id,
+                        title=details.get("title"),
+                        year=details.get("year"),
+                        quality=details.get("quality"),
+                        lang=details.get("lang"),
+                        print_type=details.get("print"),
+                        season=details.get("season"),
+                        episode=details.get("episode"),
+                        codec=details.get("codec"),
+                        caption=caption,
+                        link=msg.link,
+                        file_unique_id=file_uid
                     )
 
-            except Exception as inner_e:
-                errors += 1
-                logger.warning(f"⚠️ Skipped due to error: {inner_e}")
+                    if result == "saved":
+                        indexed += 1
+                    elif result == "duplicate":
+                        duplicates += 1
+                    else:
+                        errors += 1
+
+                    total = indexed + duplicates + errors + unsupported
+                    if total % BATCH_SIZE == 0:
+                        await asyncio.sleep(2)
+                        await progress.edit_text(
+                            f"📈 Indexing Progress\n"
+                            f"✅ Indexed: {indexed}\n"
+                            f"⏩ Duplicates: {duplicates}\n"
+                            f"❎ Skipped (no UID): {skipped_uid}\n"
+                            f"⚠️ Unsupported: {unsupported}\n"
+                            f"❌ Failed: {errors}\n"
+                            f"From `{source_chat_id}` → `{target_chat_id}`",
+                            reply_markup=keyboard
+                        )
+
+                except FloodWait as fw:
+                    await asyncio.sleep(fw.value)
+                except Exception as inner_e:
+                    errors += 1
+                    logger.warning(f"⚠️ Skipped message due to error: {inner_e}")
 
         await mark_indexed_chat_async(target_chat_id, source_chat_id)
         await progress.edit_text(
@@ -172,7 +180,7 @@ async def index_chat(client, message):
         await progress.edit_text(f"❌ Error during indexing: {e}")
         logger.exception(e)
     finally:
-        INDEXING.pop(user_id, None)  # ✅ Unlock even if failed
+        INDEXING.pop(user_id, None)
 
 
 @Client.on_callback_query(filters.regex(r"cancel_index_(\d+)"))
