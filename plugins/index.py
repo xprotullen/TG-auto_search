@@ -109,20 +109,24 @@ async def index_chat(client, message):
     elif getattr(user_msg, "text", None) and user_msg.text.startswith("https://t.me"):
         try:
             parts = user_msg.text.rstrip("/").split("/")
-            last_msg_id = int(parts[-1])
-            chat_identifier = parts[-2]
-            if chat_identifier.isnumeric():
-                chat_id_from_link = int("-100" + chat_identifier)
+            msg_id = int(parts[-1])
+            chat_part = parts[-2]
+
+            if chat_part.isnumeric():
+                chat_id_from_link = int("-100" + chat_part)
             else:
-                chat_id_from_link = chat_identifier
+                chat = await client.get_chat(chat_part)
+                chat_id_from_link = chat.id
+
             if chat_id_from_link != source_chat_id:
                 return await message.reply_text("❌ t.me link must point to the same source chat!")
+
+            last_msg_id = msg_id
         except Exception:
             return await message.reply_text("❌ Invalid t.me link format!")
     else:
         return await message.reply_text("❌ Invalid input! Must forward a message or provide a t.me link.")
-
-            
+   
     s = await message.reply_text("✏️ Enter number of messages to skip from start (0 for none):")
     skip_msg = await client.listen(chat_id=message.chat.id, user_id=user_id)
     await s.delete()
