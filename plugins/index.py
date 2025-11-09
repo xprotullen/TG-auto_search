@@ -40,26 +40,21 @@ async def index_chat(client, message):
     if INDEXING.get(user_id):
         return await message.reply_text("⚠️ Indexing already in progress! Please wait or cancel it first.")
 
-    try:
-        bot_member = await client.get_chat_member(target_chat_id, "me")
-        if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ Bot must be admin in target chat!")
-    except Exception as e:
-        return await message.reply_text(f"⚠️ Error accessing target chat: {e}")
+    async def check_admin(chat_id, who):
+        try:
+            member = await client.get_chat_member(chat_id, who)
+            return member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]
+        except Exception:
+            return False
 
-    try:
-        user_member = await client.get_chat_member(target_chat_id, user_id)
-        if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ You must be admin in target chat to start indexing!")
-    except Exception as e:
-        return await message.reply_text(f"⚠️ Error verifying user permissions: {e}")
+    if not await check_admin(target_chat_id, "me"):
+        return await message.reply_text("❌ Bot must be admin in target chat!")
 
-    try:
-        bot_member_source = await client.get_chat_member(source_chat_id, "me")
-        if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ Bot must be admin in source chat to fetch messages!")
-    except Exception as e:
-        return await message.reply_text(f"⚠️ Error accessing source chat: {e}")
+    if not await check_admin(target_chat_id, user_id):
+        return await message.reply_text("❌ You must be admin in target chat!")
+
+    if not await check_admin(source_chat_id, "me"):
+        return await message.reply_text("❌ Bot must be admin in source chat!")
 
     try:
         userbot_member = await client.USER.get_chat_member(source_chat_id, "me")
@@ -71,7 +66,7 @@ async def index_chat(client, message):
             return await message.reply_text("❌ Userbot must be at least a member in source chat!")
     except Exception as e:
         return await message.reply_text(f"⚠️ Userbot can't access source chat: {e}")
-
+        
     if await get_targets_for_source_async(source_chat_id):
         return await message.reply_text(
             f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
@@ -87,10 +82,11 @@ async def index_chat(client, message):
     )
 
     INDEXING[user_id] = True
-
     indexed = 0
     errors = 0
     unsupported = 0
+    skipped_uid = 0
+    duplicates = 0
 
     try:
         async for msg in client.USER.search_messages(
@@ -98,35 +94,39 @@ async def index_chat(client, message):
             filter=MessagesFilter.EMPTY,
             offset=0
         ):
-            if not INDEXING.get(user_id):
-                await progress.edit_text("🚫 Indexing cancelled.")
-                return
-
-            if not msg.media:
-                unsupported += 1
-                continue
-
-            if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
-                unsupported += 1
-                continue
-
-            msg_caption = (
-                msg.caption
-                or getattr(msg.video, "file_name", None)
-                or getattr(msg.document, "file_name", None)
-            )
-            if not msg_caption:
-                unsupported += 1
-                continue
-                
-            file_uid = (
-                getattr(msg.video, "file_unique_id", None)
-                or getattr(msg.document, "file_unique_id", None)
-            )
-            
             try:
-                details = extract_details(msg_caption)
-                await save_movie_async(
+                if not INDEXING.get(user_id):
+                    await progress.edit_text("🚫 Indexing cancelled.")
+                    return
+
+                if not msg.media:
+                    unsupported += 1
+                    continue
+
+                if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
+                    unsupported += 1
+                    continue
+
+                caption = (
+                    msg.caption
+                    or getattr(msg.video, "file_name", None)
+                    or getattr(msg.document, "file_name", None)
+                )
+                if not caption:
+                    unsupported += 1
+                    continue
+
+                file_uid = (
+                    getattr(msg.video, "file_unique_id", None)
+                    or getattr(msg.document, "file_unique_id", None)
+                )
+
+                if not file_uid:
+                    skipped_uid += 1
+                    continue
+
+                details = extract_details(caption)
+                result = await save_movie_async(
                     chat_id=target_chat_id,
                     title=details.get("title"),
                     year=details.get("year"),
@@ -136,16 +136,23 @@ async def index_chat(client, message):
                     season=details.get("season"),
                     episode=details.get("episode"),
                     codec=details.get("codec"),
-                    caption=msg_caption,
+                    caption=caption,
                     link=msg.link,
-                    file_uid=file_uid
+                    file_unique_id=file_uid
                 )
-                indexed += 1
 
-                if indexed % BATCH_SIZE == 0:
+                if result == "duplicate":
+                    duplicates += 1
+                elif result == "saved":
+                    indexed += 1
+                else:
+                    errors += 1
+
+                if (indexed + duplicates + skipped_uid + unsupported + errors) % BATCH_SIZE == 0:
                     await asyncio.sleep(2)
                     await progress.edit_text(
-                        f"📈 Indexed: {indexed}\nUnsupported: {unsupported}\n⚠️ Failed: {errors}\n"
+                        f"📈 Indexed: {indexed}\n⏩ Duplicates: {duplicates}\n⚠️ Failed: {errors}\n"
+                        f"❎ Skipped (no UID): {skipped_uid}\nUnsupported: {unsupported}\n"
                         f"From `{source_chat_id}` → `{target_chat_id}`",
                         reply_markup=keyboard
                     )
@@ -156,14 +163,14 @@ async def index_chat(client, message):
 
         await mark_indexed_chat_async(target_chat_id, source_chat_id)
         await progress.edit_text(
-            f"✅ Completed!\n\n📂 Indexed: <b>{indexed}</b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}</b>\n"
+            f"✅ Completed!\n\n📂 Indexed: <b>{indexed}</b>\n⏩ Duplicates: <b>{duplicates}</b>\n"
+            f"❎ Skipped (no UID): <b>{skipped_uid}</b>\nUnsupported: {unsupported}\n⚠️ Failed: <b>{errors}</b>\n"
             f"Linked `{source_chat_id}` → `{target_chat_id}`"
         )
 
     except Exception as e:
         await progress.edit_text(f"❌ Error during indexing: {e}")
         logger.exception(e)
-
     finally:
         INDEXING.pop(user_id, None)  # ✅ Unlock even if failed
 
