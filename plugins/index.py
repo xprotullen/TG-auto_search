@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from pyrogram import Client, filters
-from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType
+from pyrogram.enums import ChatMemberStatus, MessagesFilter, MessageMediaType, ChatType
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import RPCError, FloodWait
 from .search import clear_redis_for_chat
@@ -29,17 +29,41 @@ async def index_chat(client, message):
     user_id = message.from_user.id
     if user_id not in AUTHORIZED_USERS:
         return
-
+        
+    if INDEXING.get(user_id):
+        return await message.reply_text("⚠️ Indexing already in progress! Please wait or cancel it first.")
+            
     parts = message.text.split()
     if len(parts) < 3:
         return await message.reply_text("Usage: `/index target_chat_id source_chat_id`")
 
-    target_chat_id = int(parts[1])
-    source_chat_id = int(parts[2])
+    target_chat_id = parts[1]
+    source_chat_id = parts[2]
+    
+    if not str(target_chat_id).startswith("-100"):
+        target_chat_id = f"-100{target_chat_id}"
+    if not str(source_chat_id).startswith("-100"):
+        source_chat_id = f"-100{source_chat_id}"
 
-    if INDEXING.get(user_id):
-        return await message.reply_text("⚠️ Indexing already in progress! Please wait or cancel it first.")
+    try:
+        target_chat_id = int(target_chat_id)
+        source_chat_id = int(source_chat_id)
+    except ValueError:
+        return await message.reply_text("❌ Invalid chat ID. Must be numbers like -1001234567890")
 
+    try:
+        target_chat = await client.get_chat(target_chat_id)
+    except Exception as e:
+        return await message.reply_text(f"❌ Cannot access target chat: Make sure bot is admin in source chat and target chat id is correct {e}")
+
+    try:
+        source = await client.get_chat(source_chat_id)
+    except Exception as e:
+        return await message.reply_text(f"❌ Cannot access source chat: Make sure bot is admin in source chat and source chat id is correct {e}")
+
+    if target_chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        return await message.reply_text("Target Chat Must Be A Group.")
+        
     async def check_admin(chat_id, who):
         try:
             member = await client.get_chat_member(chat_id, who)
@@ -68,10 +92,45 @@ async def index_chat(client, message):
         return await message.reply_text(f"⚠️ Userbot can't access source chat: {e}")
         
     if await is_source_linked_to_target(target_chat_id, source_chat_id):
-    return await message.reply_text(
-        f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
-        f"To reindex, run `/delete {target_chat_id} {source_chat_id}` first."
-    )
+        return await message.reply_text(
+            f"⚠️ `{target_chat_id}` is already indexed from `{source_chat_id}`.\n"
+            f"To reindex, run `/delete {target_chat_id} {source_chat_id}` first."
+        )
+        
+    prompt = await message.reply("📩 Forward the last message from the channel or send a message link:")
+    user_msg = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    await prompt.delete()
+
+    last_msg_id = None
+    if getattr(user_msg, "forward_from_chat", None):
+        if user_msg.forward_from_chat.id != source_chat_id:
+            return await message.reply_text("❌ Message must be from the same source chat!")
+        last_msg_id = user_msg.forward_from_message_id
+    elif getattr(user_msg, "text", None) and user_msg.text.startswith("https://t.me"):
+        try:
+            parts = user_msg.text.rstrip("/").split("/")
+            last_msg_id = int(parts[-1])
+            chat_identifier = parts[-2]
+            if chat_identifier.isnumeric():
+                chat_id_from_link = int("-100" + chat_identifier)
+            else:
+                chat_id_from_link = chat_identifier
+            if chat_id_from_link != source_chat_id:
+                return await message.reply_text("❌ t.me link must point to the same source chat!")
+        except Exception:
+            return await message.reply_text("❌ Invalid t.me link format!")
+    else:
+        return await message.reply_text("❌ Invalid input! Must forward a message or provide a t.me link.")
+
+            
+    s = await message.reply_text("✏️ Enter number of messages to skip from start (0 for none):")
+    skip_msg = await client.listen(chat_id=message.chat.id, user_id=user_id)
+    await s.delete()
+
+    try:
+        start_msg_id = int(skip_msg.text)
+    except ValueError:
+        return await message.reply_text("❌ Invalid number!")
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_index_{user_id}")]
@@ -98,6 +157,9 @@ async def index_chat(client, message):
                 if not INDEXING.get(user_id):
                     await progress.edit_text("🚫 Indexing cancelled.")
                     return
+                    
+                if msg.id < start_msg_id or msg.id > last_msg_id:
+                    continue 
 
                 if not msg.media:
                     unsupported += 1
