@@ -265,17 +265,6 @@ async def get_sources_for_target_async(target_chat: int, source_chat: int):
         logger.exception("get_sources_for_target_async failed")
         return False
 
-async def get_sources_for_target_async(target_chat: int):
-    """Get all sources linked to a target."""
-    try:
-        docs = await INDEXED_COLL.find(
-            {"target_chat": target_chat}, {"source_chat": 1}
-        ).to_list(length=None)
-        return [d["source_chat"] for d in docs]
-    except Exception:
-        logger.exception("get_sources_for_target_async failed")
-        return []
-
 
 async def is_chat_linked_async(target_chat: int) -> bool:
     """Check if target chat is already linked."""
