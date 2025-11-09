@@ -114,6 +114,11 @@ async def reindex_chat(client, message):
                 unsupported += 1
                 continue
 
+            file_uid = (
+                getattr(msg.video, "file_unique_id", None)
+                or getattr(msg.document, "file_unique_id", None)
+            )
+            
             try:
                 details = extract_details(msg_caption)
                 await save_movie_async(
@@ -127,7 +132,8 @@ async def reindex_chat(client, message):
                     episode=details.get("episode"),
                     codec=details.get("codec"),
                     caption=msg_caption,
-                    link=msg.link
+                    link=msg.link,
+                    file_uid=file_uid
                 )
                 indexed += 1
 
