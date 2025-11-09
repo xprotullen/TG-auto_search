@@ -254,17 +254,16 @@ async def unmark_indexed_chat_async(target_chat: int, source_chat: int = None):
         logger.exception("unmark_indexed_chat_async failed")
 
 
-async def get_targets_for_source_async(source_chat: int):
-    """Get all targets linked to a source."""
+async def get_sources_for_target_async(target_chat: int, source_chat: int):
     try:
-        docs = await INDEXED_COLL.find(
-            {"source_chat": source_chat}, {"target_chat": 1}
-        ).to_list(length=None)
-        return [d["target_chat"] for d in docs]
-    except Exception:
-        logger.exception("get_targets_for_source_async failed")
-        return []
-
+        doc = await INDEXED_COLL.find_one(
+            {"target_chat": target_chat, "source_chat": source_chat},
+            {"_id": 1}
+        )
+        return bool(doc)
+    except Exception as e:
+        logger.exception("get_sources_for_target_async failed")
+        return False
 
 async def get_sources_for_target_async(target_chat: int):
     """Get all sources linked to a target."""
