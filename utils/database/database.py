@@ -254,7 +254,7 @@ async def unmark_indexed_chat_async(target_chat: int, source_chat: int = None):
         logger.exception("unmark_indexed_chat_async failed")
 
 
-async def get_sources_for_target_async(target_chat: int, source_chat: int):
+async def is_source_linked_to_target(target_chat: int, source_chat: int):
     try:
         doc = await INDEXED_COLL.find_one(
             {"target_chat": target_chat, "source_chat": source_chat},
