@@ -36,26 +36,21 @@ async def reindex_chat(client, message):
     if REINDEXING.get(user_id):
         return await message.reply_text("⚠️ Reindexing already running! Please wait or cancel it first.")
 
-    try:
-        bot_member = await client.get_chat_member(target_chat_id, "me")
-        if bot_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ Bot must be admin in target chat!")
-    except Exception as e:
-        return await message.reply_text(f"⚠️ Error accessing target chat: {e}")
+    async def check_admin(chat_id, who):
+        try:
+            member = await client.get_chat_member(chat_id, who)
+            return member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]
+        except Exception:
+            return False
 
-    try:
-        user_member = await client.get_chat_member(target_chat_id, user_id)
-        if user_member.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ You must be admin in target chat to start reindexing!")
-    except Exception as e:
-        return await message.reply_text(f"⚠️ Error verifying user permissions: {e}")
+    if not await check_admin(target_chat_id, "me"):
+        return await message.reply_text("❌ Bot must be admin in target chat!")
 
-    try:
-        bot_member_source = await client.get_chat_member(source_chat_id, "me")
-        if bot_member_source.status not in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
-            return await message.reply_text("❌ Bot must be admin in source chat!")
-    except Exception as e:
-        return await message.reply_text(f"⚠️ Error accessing source chat: {e}")
+    if not await check_admin(target_chat_id, user_id):
+        return await message.reply_text("❌ You must be admin in target chat!")
+
+    if not await check_admin(source_chat_id, "me"):
+        return await message.reply_text("❌ Bot must be admin in source chat!")
 
     try:
         userbot_member = await client.USER.get_chat_member(source_chat_id, "me")
@@ -84,6 +79,7 @@ async def reindex_chat(client, message):
     REINDEXING[user_id] = True
 
     indexed = 0
+    duplicates = 0
     errors = 0
     unsupported = 0
 
@@ -97,11 +93,7 @@ async def reindex_chat(client, message):
                 await progress.edit_text("🚫 Indexing cancelled.")
                 return
 
-            if not msg.media:
-                unsupported += 1
-                continue
-
-            if msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
+            if not msg.media or msg.media not in [MessageMediaType.VIDEO, MessageMediaType.DOCUMENT]:
                 unsupported += 1
                 continue
 
@@ -118,10 +110,10 @@ async def reindex_chat(client, message):
                 getattr(msg.video, "file_unique_id", None)
                 or getattr(msg.document, "file_unique_id", None)
             )
-            
+
             try:
                 details = extract_details(msg_caption)
-                await save_movie_async(
+                result = await save_movie_async(
                     chat_id=target_chat_id,
                     title=details.get("title"),
                     year=details.get("year"),
@@ -133,17 +125,31 @@ async def reindex_chat(client, message):
                     codec=details.get("codec"),
                     caption=msg_caption,
                     link=msg.link,
-                    file_uid=file_uid
+                    file_unique_id=file_uid
                 )
-                indexed += 1
 
-                if indexed % BATCH_SIZE == 0:
+                if result == "saved":
+                    indexed += 1
+                elif result == "duplicate":
+                    duplicates += 1
+                else:
+                    errors += 1
+
+                total = indexed + duplicates + errors + unsupported
+                if total % BATCH_SIZE == 0:
                     await asyncio.sleep(2)
                     await progress.edit_text(
-                        f"📈 Reindexing...\nIndexed: {indexed}\nUnsupported: {unsupported}\n⚠️ Failed: {errors}\n"
+                        f"📈 Reindexing Progress\n"
+                        f"✅ Indexed: {indexed}\n"
+                        f"⏩ Duplicates: {duplicates}\n"
+                        f"⚠️ Unsupported: {unsupported}\n"
+                        f"❌ Failed: {errors}\n"
                         f"From `{source_chat_id}` → `{target_chat_id}`",
                         reply_markup=keyboard
                     )
+
+            except FloodWait as fw:
+                await asyncio.sleep(fw.value)
             except Exception as inner_e:
                 errors += 1
                 logger.warning(f"⚠️ Skipped message due to error: {inner_e}")
@@ -153,7 +159,10 @@ async def reindex_chat(client, message):
 
         await progress.edit_text(
             f"✅ Reindex Completed!\n\n"
-            f"📂 Indexed: {indexed}\n⚠️ Unsupported: {unsupported}\n❌ Failed: {errors}\n"
+            f"📂 Indexed: {indexed}\n"
+            f"⏩ Duplicates: {duplicates}\n"
+            f"⚠️ Unsupported: {unsupported}\n"
+            f"❌ Failed: {errors}\n"
             f"🔗 `{source_chat_id}` → `{target_chat_id}`"
         )
 
