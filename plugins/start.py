@@ -1,5 +1,7 @@
+import os
 import time
 import humanize
+import subprocess
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import RPCError
@@ -135,7 +137,15 @@ async def resetdb_handler(client, message):
     except Exception as e:
         logger.exception("❌ Database reset failed")
         await message.reply_text(f"❌ Reset failed: {e}")
-        
+
+@Client.on_message(filters.command("update") & filters.user(AUTHORIZED_USERS))
+async def update_bot(client, message):
+    msg = await message.reply("🔄 Pulling latest commits...")
+    result = subprocess.run(["git", "pull"], capture_output=True, text=True)
+    output = result.stdout + "\n" + result.stderr
+    await msg.edit(f"📥 Git output:\n<code>{output}</code>\n♻️ Restarting...")
+    os._exit(0) 
+    
 @Client.on_message(filters.command("checkbot") & filters.private)
 async def checkbot_handler(client, message):
     """Self-diagnostic command to check bot health and resource usage."""
