@@ -1,1 +1,1 @@
-python3 update.py && python3 -m Thunder
+python3 update.py && python3 main.py
