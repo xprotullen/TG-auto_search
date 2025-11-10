@@ -35,7 +35,7 @@ async def start_command(client, message):
         "<code>/resetdb</code> - Clean MongoDB database\n"
         "<code>/reindex</code> - Reindex chat messages\n"
         "<code>/clearcache</code> - Clear Redis cache for a specific chat\n"
-        "<code>/update</code> - Pull latest commits\n"
+        "<code>/restart</code> - Pull latest commits & restart the bot\n"
         "<code>/flushredis</code> - ⚠️ Clear entire Redis database (use with caution)\n\n"
         "⚙️ <b>Notes:</b>\n"
         "• Bot only works in authorized and linked chats.\n"
