@@ -2,8 +2,10 @@ from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessageMediaType, MessagesFilter
 from pyrogram.errors import RPCError, FloodWait
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import ListenerTypes
 import asyncio
 import logging
+
 from .search import clear_redis_for_chat
 from info import AUTHORIZED_USERS
 from utils.database import (
@@ -26,7 +28,7 @@ async def reindex_chat(client, message):
     user_id = message.from_user.id
     if user_id not in AUTHORIZED_USERS:
         return
-        
+
     if REINDEXING.get(user_id):
         return await message.reply_text("⚠️ Reindexing already running! Please wait or cancel it first.")
         
@@ -59,9 +61,7 @@ async def reindex_chat(client, message):
         return await message.reply_text(f"❌ Cannot access source chat: Make sure bot is admin in source chat.\nError: {e}")
 
     if not await is_source_linked_to_target(target_chat_id, source_chat_id):
-        return await message.reply_text(
-            f"These chats are not indexed. First index using /index command."
-        )
+        return await message.reply_text("These chats are not indexed. First index using /index command.")
         
     async def check_admin(chat_id, who):
         try:
@@ -128,6 +128,7 @@ async def reindex_chat(client, message):
     else:
         return await message.reply_text("❌ Invalid input! Must forward a message or provide a t.me link.")
     
+    # Ask for number of skipped messages
     s = await message.reply_text("✏️ Enter number of messages to skip from start (0 for none):")
     try:
         skip_msg = await client.listen(chat_id=message.chat.id, user_id=user_id, timeout=60)
@@ -141,7 +142,7 @@ async def reindex_chat(client, message):
     except ValueError:
         return await message.reply_text("❌ Invalid number!")
         
-    # --- ASK FOR DATA DELETION OPTION ---
+    # Ask for delete confirmation
     confirm_keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("✅ Yes, delete old data", callback_data=f"confirm_delete_yes_{user_id}"),
@@ -154,7 +155,12 @@ async def reindex_chat(client, message):
     )
 
     try:
-        cb = await client.listen(callback_query=True, filters=filters.user(user_id), timeout=60)
+        cb = await client.listen(
+            user_id=user_id,
+            filters=filters.user(user_id),
+            listener_type=ListenerTypes.CALLBACK_QUERY,
+            timeout=60
+        )
     except asyncio.TimeoutError:
         await ask_delete.edit_text("⏳ Timed out. Reindex cancelled.")
         return
