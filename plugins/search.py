@@ -70,18 +70,20 @@ async def clear_redis_for_chat(chat_id: int):
     
 @Client.on_message(filters.group & filters.text)
 async def search_movie(client, message):
+    if not message.from_user:
+        return
+        
     chat_id = int(message.chat.id)
+    query = message.text.strip()
+    
+    if not query or query.startswith(("/", ".", "!", ",")):
+        return
     
     linked = await is_chat_linked_async(chat_id)
     if not linked:
         return
         
-    query = message.text.strip()
     user_id = message.from_user.id
-    if not user_id:
-        return
-    if not query or query.startswith(("/", ".", "!", ",")):
-        return
 
     cache_data = await get_cached_results(chat_id, query)
     if cache_data:
