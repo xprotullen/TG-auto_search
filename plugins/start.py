@@ -1,11 +1,10 @@
 import os
 import time
 import humanize
-import subprocess
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import RPCError
-from utils.database import collection, ensure_indexes, INDEXED_COLL, RESTART_COLL
+from utils.database import collection, ensure_indexes, INDEXED_COLL, RESTART_COLL, add_restart_message
 from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
 from .search import rdb, clear_redis_for_chat
@@ -141,25 +140,16 @@ async def resetdb_handler(client, message):
         await message.reply_text(f"❌ Reset failed: {e}")
 
 
-@Client.on_message(filters.command("update") & filters.user(AUTHORIZED_USERS))
-async def update_bot(client, message):
-    msg = await message.reply("🔄 Pulling latest commits...")
+@Client.on_message(filters.command("restart") & filters.user(AUTHORIZED_USERS))
+async def restart_bot(client, message):
+    """Restart the bot and pull latest code using update.py"""
+    msg = await message.reply_text("♻️ Restarting bot, please wait...")
     try:
-        branch_result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True
-        )
-        branch = branch_result.stdout.strip()
-        if branch == "HEAD":
-            branch = "master" 
-        fetch = subprocess.run(["git", "fetch", "--all"], capture_output=True, text=True)
-        reset = subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], capture_output=True, text=True)
-        output = fetch.stdout + "\n" + fetch.stderr + "\n" + reset.stdout + "\n" + reset.stderr
-        await msg.edit(f"📥 Git output:\n<code>{output}</code>\n♻️ Restarting...")
-    except Exception as e:
-        await msg.edit(f"❌ Update failed: {e}")
-    os._exit(0)
+        await add_restart_message(msg.id, message.chat.id)
+    except Exception:
+        pass
+    await asyncio.sleep(2)
+    os.execvp("python3", ["python3", "update.py"])
     
 @Client.on_message(filters.command("checkbot") & filters.private)
 async def checkbot_handler(client, message):
