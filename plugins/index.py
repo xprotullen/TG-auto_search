@@ -214,7 +214,7 @@ async def index_chat(client, message):
                 else:
                     errors += 1
 
-                total = indexed + duplicates + errors + unsupported
+                total = indexed + duplicates
                 if total % BATCH_SIZE == 0:
                     await asyncio.sleep(2)
                     await progress.edit_text(
