@@ -158,8 +158,11 @@ async def restart_bot(client, message):
         pass
 
     await asyncio.sleep(2)
-    os.execv("/bin/bash", ["bash", "start.sh"])
-
+    try:
+        os.execv("/bin/bash", ["bash", "start.sh"])
+    except Exception as e:
+        await message.reply_text(f"❌ Failed to restart: {e}")
+        
 @Client.on_message(filters.command("checkbot") & filters.private)
 async def checkbot_handler(client, message):
     """Self-diagnostic command to check bot health and resource usage."""
