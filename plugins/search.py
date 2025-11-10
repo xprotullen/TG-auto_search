@@ -78,6 +78,8 @@ async def search_movie(client, message):
         
     query = message.text.strip()
     user_id = message.from_user.id
+    if not user_id:
+        return
     if not query or query.startswith(("/", ".", "!", ",")):
         return
 
@@ -114,6 +116,7 @@ async def send_results(
     text += f"📄 Page {page}/{pages} — Total: {total}\n\n"
 
     for i, movie in enumerate(movies, start=start + 1):
+
         title = movie.get("title") or "Unknown"
         year = movie.get("year")
         quality = movie.get("quality")
@@ -184,8 +187,12 @@ async def pagination_handler(client, query: CallbackQuery):
         owner_id = int(owner_id)
     except Exception:
         return await query.answer("⚠️ Invalid data.", show_alert=True)
-
-    if query.from_user.id != owner_id:
+        
+    user_id = query.from_user.id
+    if not user_id:
+        return await query.answer("⚠️ Sorry I Can't Access Your User ID, Your Are Anonymous Admin!", show_alert=True)
+        
+    if user_id != owner_id:
         return await query.answer("⚠️ Only the original user can use these buttons!", show_alert=True)
 
     cache_data = await get_cached_results(chat_id, search_query)
