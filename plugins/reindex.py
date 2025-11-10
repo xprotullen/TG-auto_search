@@ -2,7 +2,6 @@ from pyrogram import Client, filters
 from pyrogram.enums import ChatMemberStatus, MessageMediaType, MessagesFilter
 from pyrogram.errors import RPCError, FloodWait
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.types import ListenerTypes
 import asyncio
 import logging
 
@@ -20,6 +19,7 @@ from utils import extract_details
 logger = logging.getLogger(__name__)
 
 REINDEXING = {}
+PENDING_DELETE_CONFIRM = {}  # store pending confirmation per user
 BATCH_SIZE = 50
 
 
@@ -70,6 +70,7 @@ async def reindex_chat(client, message):
         except Exception:
             return False
 
+    # 👇 Keeping your permission checks as-is
     if not await check_admin(target_chat_id, "me"):
         return await message.reply_text("❌ Bot must be admin in target chat!")
 
@@ -142,11 +143,11 @@ async def reindex_chat(client, message):
     except ValueError:
         return await message.reply_text("❌ Invalid number!")
         
-    # Ask for delete confirmation
+    # Ask for delete confirmation — using callback instead of ListenerTypes
     confirm_keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("✅ Yes, delete old data", callback_data=f"confirm_delete_yes_{user_id}"),
-            InlineKeyboardButton("❌ No, keep existing data", callback_data=f"confirm_delete_no_{user_id}")
+            InlineKeyboardButton("✅ Yes, delete old data", callback_data=f"reindex_confirm_yes_{user_id}"),
+            InlineKeyboardButton("❌ No, keep existing data", callback_data=f"reindex_confirm_no_{user_id}")
         ]
     ])
     ask_delete = await message.reply_text(
@@ -154,26 +155,45 @@ async def reindex_chat(client, message):
         reply_markup=confirm_keyboard
     )
 
-    try:
-        cb = await client.listen(
-            user_id=user_id,
-            filters=filters.user(user_id),
-            listener_type=ListenerTypes.CALLBACK_QUERY,
-            timeout=60
-        )
-    except asyncio.TimeoutError:
-        await ask_delete.edit_text("⏳ Timed out. Reindex cancelled.")
-        return
+    PENDING_DELETE_CONFIRM[user_id] = {
+        "msg": ask_delete,
+        "target_chat_id": target_chat_id,
+        "source_chat_id": source_chat_id,
+        "start_msg_id": start_msg_id,
+        "last_msg_id": last_msg_id
+    }
 
-    await ask_delete.delete()
-    delete_old_data = False
 
-    if cb.data == f"confirm_delete_yes_{user_id}":
-        delete_old_data = True
-        await cb.answer("🗑️ Old data will be deleted.")
+@Client.on_callback_query(filters.regex(r"reindex_confirm_(yes|no)_(\d+)"))
+async def handle_delete_confirm(client, callback_query):
+    choice, user_id = callback_query.matches[0].group(1), int(callback_query.matches[0].group(2))
+    if user_id not in PENDING_DELETE_CONFIRM:
+        return await callback_query.answer("⚠️ No pending reindex found!", show_alert=True)
+
+    ctx = PENDING_DELETE_CONFIRM.pop(user_id)
+    msg = ctx["msg"]
+    await msg.delete()
+
+    delete_old_data = choice == "yes"
+    if delete_old_data:
+        await callback_query.answer("🗑️ Old data will be deleted.", show_alert=False)
     else:
-        await cb.answer("✅ Keeping existing data.")
+        await callback_query.answer("✅ Keeping existing data.", show_alert=False)
 
+    # Now call the actual reindex routine
+    await start_reindex(
+        client,
+        callback_query.message,
+        user_id,
+        ctx["target_chat_id"],
+        ctx["source_chat_id"],
+        ctx["start_msg_id"],
+        ctx["last_msg_id"],
+        delete_old_data
+    )
+
+
+async def start_reindex(client, message, user_id, target_chat_id, source_chat_id, start_msg_id, last_msg_id, delete_old_data):
     if delete_old_data:
         await message.reply_text(f"🗑️ Deleting old MongoDB and Redis data for `{target_chat_id}`...")
         deleted_mongo = await delete_chat_data_async(chat_id=target_chat_id)
@@ -182,10 +202,10 @@ async def reindex_chat(client, message):
     else:
         await message.reply_text("✅ Skipped data deletion. Existing entries will remain intact.")
 
-    # Start reindex
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
     ])
+
     progress = await message.reply_text(
         f"♻️ Reindexing started...\nFrom `{source_chat_id}` → `{target_chat_id}`",
         reply_markup=keyboard
@@ -207,7 +227,7 @@ async def reindex_chat(client, message):
             if not REINDEXING.get(user_id):
                 await progress.edit_text("🚫 Indexing cancelled.")
                 return
-                
+
             if msg.id < start_msg_id or msg.id > last_msg_id:
                 continue
 
@@ -253,7 +273,7 @@ async def reindex_chat(client, message):
                 else:
                     errors += 1
 
-                total = indexed + duplicates + errors + unsupported
+                total = indexed + duplicates
                 if total % BATCH_SIZE == 0:
                     await asyncio.sleep(2)
                     await progress.edit_text(
@@ -290,11 +310,3 @@ async def reindex_chat(client, message):
 
     finally:
         REINDEXING.pop(user_id, None)
-
-
-@Client.on_callback_query(filters.regex(r"cancel_reindex_(\d+)"))
-async def cancel_reindex_callback(client, callback_query):
-    user_id = int(callback_query.matches[0].group(1))
-    REINDEXING[user_id] = False
-    await callback_query.answer("Cancelled!", show_alert=True)
-    await callback_query.message.edit_text("🚫 Indexing cancelled.")
