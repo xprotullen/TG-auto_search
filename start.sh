@@ -6,7 +6,7 @@ cd /opt/render/project/src || exit 1
 python3 update.py
 
 # Start Flask keep-alive in background
-gunicorn app:app --bind 0.0.0.0:$PORT &
+python3 -m gunicorn app:app --bind 0.0.0.0:$PORT &
 
 # Launch main bot (foreground)
 exec python3 main.py
