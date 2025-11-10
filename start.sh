@@ -1,14 +1,17 @@
-#!/bin/bash
-echo "🔁 Updating and restarting bot..."
-cd /opt/render/project/src   # make sure you are in repo root
+cd /opt/render/project/src || exit 1
 
-# Activate venv if it exists
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
+# Create venv if missing
+if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
 fi
 
-# Run updater
-python3 update.py
+# Activate venv
+source .venv/bin/activate
 
-# Launch main bot (replaces shell)
+# Install requirements
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Run updater + bot
+python3 update.py
 exec python3 main.py
