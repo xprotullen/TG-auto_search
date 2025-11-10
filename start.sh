@@ -1,6 +1,11 @@
+#!/bin/bash
 echo "🔁 Starting update and restart process..."
 
-python3 update.py
+cd /opt/render/project/src
+
+# Run updater
+./.venv/bin/python update.py
 
 echo "🚀 Launching bot..."
-python3 main.py
+# Launch main bot
+./.venv/bin/python main.py
