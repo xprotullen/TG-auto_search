@@ -43,10 +43,10 @@ async def start_command(client, message):
         "<code>/flushredis</code> – Clear <b>entire</b> Redis database\n\n"
 
         "<b>Important Notes</b>\n"
-        "• Works only in <b>authorized & linked</b> chats ✅\n"
-        "• Use <code>/checkbot</code> to verify MongoDB & Redis health 🔍\n"
-        "• Userbot must be admin in the source channel 🔧\n"
-        "• Avoid rapid button clicks to prevent FloodWaits 🚫\n\n"
+        "• Works only in <b>authorized & linked</b> chats\n"
+        "• Use <code>/checkbot</code> to verify MongoDB & Redis health\n"
+        "• Userbot must be admin in the source channel\n"
+        "• Avoid rapid button clicks to prevent FloodWaits\n\n"
 
         "💡 <i>Tip:</i> Stay organized — keep your chats clean and synced effortlessly!"
     )
