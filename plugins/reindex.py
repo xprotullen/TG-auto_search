@@ -30,7 +30,6 @@ async def reindex_chat(client, message):
     if REINDEXING.get(user_id):
         return await message.reply_text("⚠️ Reindexing already running! Please wait or cancel it first.")
         
-            
     parts = message.text.split()
     if len(parts) < 3:
         return await message.reply_text("Usage: `/reindex target_chat_id source_chat_id`")
@@ -52,16 +51,16 @@ async def reindex_chat(client, message):
     try:
         target_chat = await client.get_chat(target_chat_id)
     except Exception as e:
-        return await message.reply_text(f"❌ Cannot access target chat: Make sure bot is admin in source chat and target chat id is correct {e}")
+        return await message.reply_text(f"❌ Cannot access target chat: Make sure bot is admin in target chat.\nError: {e}")
 
     try:
         source = await client.get_chat(source_chat_id)
     except Exception as e:
-        return await message.reply_text(f"❌ Cannot access source chat: Make sure bot is admin in source chat and source chat id is correct {e}")
+        return await message.reply_text(f"❌ Cannot access source chat: Make sure bot is admin in source chat.\nError: {e}")
 
     if not await is_source_linked_to_target(target_chat_id, source_chat_id):
         return await message.reply_text(
-            f"These Chat are not indexed, First Index using /index command"
+            f"These chats are not indexed. First index using /index command."
         )
         
     async def check_admin(chat_id, who):
@@ -91,8 +90,13 @@ async def reindex_chat(client, message):
     except Exception as e:
         return await message.reply_text(f"⚠️ Userbot can't access source chat: {e}")
         
-    prompt = await message.reply("📩 Forward the last message from the channel/group or send a message link:")
-    user_msg = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id)
+    # Ask for the last message
+    prompt = await message.reply("📩 Forward the last message from the source channel/group or send a message link:")
+    try:
+        user_msg = await client.listen(chat_id=message.chat.id, user_id=message.from_user.id, timeout=120)
+    except asyncio.TimeoutError:
+        await prompt.edit_text("⏳ Timeout. No message received.")
+        return
     await prompt.delete()
 
     last_msg_id = None
@@ -125,7 +129,11 @@ async def reindex_chat(client, message):
         return await message.reply_text("❌ Invalid input! Must forward a message or provide a t.me link.")
     
     s = await message.reply_text("✏️ Enter number of messages to skip from start (0 for none):")
-    skip_msg = await client.listen(chat_id=message.chat.id, user_id=user_id)
+    try:
+        skip_msg = await client.listen(chat_id=message.chat.id, user_id=user_id, timeout=60)
+    except asyncio.TimeoutError:
+        await s.edit_text("⏳ Timeout. Reindex cancelled.")
+        return
     await s.delete()
 
     try:
@@ -133,11 +141,42 @@ async def reindex_chat(client, message):
     except ValueError:
         return await message.reply_text("❌ Invalid number!")
         
-    await message.reply_text(f"🗑️ Deleting old MongoDB and Redis data for `{target_chat_id}`...")
-    deleted_mongo = await delete_chat_data_async(chat_id=target_chat_id)
-    deleted_redis = await clear_redis_for_chat(target_chat_id)
-    await message.reply_text(f"✅ Deleted {deleted_mongo} Mongo docs and {deleted_redis} Redis keys.")
+    # --- ASK FOR DATA DELETION OPTION ---
+    confirm_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes, delete old data", callback_data=f"confirm_delete_yes_{user_id}"),
+            InlineKeyboardButton("❌ No, keep existing data", callback_data=f"confirm_delete_no_{user_id}")
+        ]
+    ])
+    ask_delete = await message.reply_text(
+        "🗑️ Do you want to delete old MongoDB and Redis data before reindexing?",
+        reply_markup=confirm_keyboard
+    )
 
+    try:
+        cb = await client.listen(callback_query=True, filters=filters.user(user_id), timeout=60)
+    except asyncio.TimeoutError:
+        await ask_delete.edit_text("⏳ Timed out. Reindex cancelled.")
+        return
+
+    await ask_delete.delete()
+    delete_old_data = False
+
+    if cb.data == f"confirm_delete_yes_{user_id}":
+        delete_old_data = True
+        await cb.answer("🗑️ Old data will be deleted.")
+    else:
+        await cb.answer("✅ Keeping existing data.")
+
+    if delete_old_data:
+        await message.reply_text(f"🗑️ Deleting old MongoDB and Redis data for `{target_chat_id}`...")
+        deleted_mongo = await delete_chat_data_async(chat_id=target_chat_id)
+        deleted_redis = await clear_redis_for_chat(target_chat_id)
+        await message.reply_text(f"✅ Deleted {deleted_mongo} Mongo docs and {deleted_redis} Redis keys.")
+    else:
+        await message.reply_text("✅ Skipped data deletion. Existing entries will remain intact.")
+
+    # Start reindex
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_reindex_{user_id}")]
     ])
