@@ -5,7 +5,7 @@ import subprocess
 from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import RPCError
-from utils.database import collection, ensure_indexes, INDEXED_COLL
+from utils.database import collection, ensure_indexes, INDEXED_COLL, RESTART_COLL
 from redis.exceptions import ConnectionError as RedisConnectionError
 from motor.motor_asyncio import AsyncIOMotorClient
 from .search import rdb, clear_redis_for_chat
@@ -129,7 +129,8 @@ async def resetdb_handler(client, message):
             return await message.reply("❌ Reset cancelled.")
         msg = await message.reply("🧹 Resetting database... please wait.")
         await collection.drop()            
-        await INDEXED_COLL.drop()  
+        await INDEXED_COLL.drop()
+        await RESTART_COLL.drop()
         await ensure_indexes()
         await rdb.flushdb()
         await msg.edit_text("✅ Database reset successfully!\nAll data wiped and indexes rebuilt.")
