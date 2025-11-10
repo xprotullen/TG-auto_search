@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import humanize
 import asyncio
@@ -143,15 +144,17 @@ async def resetdb_handler(client, message):
 
 @Client.on_message(filters.command("restart") & filters.user(AUTHORIZED_USERS))
 async def restart_bot(client, message):
-    """Restart the bot and pull latest code using update.py"""
+    """Restart the bot and run update script"""
     msg = await message.reply_text("♻️ Restarting bot, please wait...")
     try:
         await add_restart_message(msg.id, message.chat.id)
     except Exception:
         pass
     await asyncio.sleep(2)
-    os.execvp("python3", ["python3", "update.py"])
-    
+    update_script = os.path.join(os.getcwd(), "update.py")
+    os.execv(sys.executable, [sys.executable, update_script])
+
+
 @Client.on_message(filters.command("checkbot") & filters.private)
 async def checkbot_handler(client, message):
     """Self-diagnostic command to check bot health and resource usage."""
