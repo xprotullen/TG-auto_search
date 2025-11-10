@@ -1,17 +1,12 @@
+#!/bin/bash
+echo "🔁 Updating and launching bot..."
 cd /opt/render/project/src || exit 1
 
-# Create venv if missing
-if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
-fi
-
-# Activate venv
-source .venv/bin/activate
-
-# Install requirements
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# Run updater + bot
+# Run updater
 python3 update.py
+
+# Start Flask keep-alive in background
+gunicorn app:app --bind 0.0.0.0:$PORT &
+
+# Launch main bot (foreground)
 exec python3 main.py
