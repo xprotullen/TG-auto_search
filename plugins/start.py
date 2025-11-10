@@ -139,13 +139,26 @@ async def resetdb_handler(client, message):
         logger.exception("❌ Database reset failed")
         await message.reply_text(f"❌ Reset failed: {e}")
 
+
 @Client.on_message(filters.command("update") & filters.user(AUTHORIZED_USERS))
 async def update_bot(client, message):
     msg = await message.reply("🔄 Pulling latest commits...")
-    result = subprocess.run(["git", "pull"], capture_output=True, text=True)
-    output = result.stdout + "\n" + result.stderr
-    await msg.edit(f"📥 Git output:\n<code>{output}</code>\n♻️ Restarting...")
-    os._exit(0) 
+    try:
+        branch_result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True
+        )
+        branch = branch_result.stdout.strip()
+        if branch == "HEAD":
+            branch = "master" 
+        fetch = subprocess.run(["git", "fetch", "--all"], capture_output=True, text=True)
+        reset = subprocess.run(["git", "reset", "--hard", f"origin/{branch}"], capture_output=True, text=True)
+        output = fetch.stdout + "\n" + fetch.stderr + "\n" + reset.stdout + "\n" + reset.stderr
+        await msg.edit(f"📥 Git output:\n<code>{output}</code>\n♻️ Restarting...")
+    except Exception as e:
+        await msg.edit(f"❌ Update failed: {e}")
+    os._exit(0)
     
 @Client.on_message(filters.command("checkbot") & filters.private)
 async def checkbot_handler(client, message):
