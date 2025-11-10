@@ -31,7 +31,7 @@ def register_userbot_handlers(user_client):
 
             details = extract_details(msg_caption)
 
-            for target_chat in targets:
+            for target_chat in from_chat:
                 await save_movie_async(
                     chat_id=target_chat,
                     title=details.get("title"),
