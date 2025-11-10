@@ -1,22 +1,21 @@
 import logging
 from pyrogram import Client, enums, __version__
-from info import API_HASH, APP_ID, LOGGER, BOT_TOKEN 
+from info import API_HASH, APP_ID, LOGGER, BOT_TOKEN
 from user import User
-from utils.database import ensure_indexes
+from utils.database import ensure_indexes, get_restart_message, clear_restart_message
 from plugins.newpost import register_userbot_handlers
+
 
 class Wroxen(Client):
     USER: User = None
     USER_ID: int = None
-  
+
     def __init__(self):
         super().__init__(
             "wroxen",
             api_hash=API_HASH,
             api_id=APP_ID,
-            plugins={
-                "root": "plugins"
-            },
+            plugins={"root": "plugins"},
             workers=200,
             bot_token=BOT_TOKEN,
             sleep_threshold=10
@@ -27,10 +26,8 @@ class Wroxen(Client):
         await super().start(*args, **kwargs)
         bot_details = await self.get_me()
         self.set_parse_mode(enums.ParseMode.HTML)
-        self.LOGGER(__name__).info(
-            f"🤖 @{bot_details.username} started successfully!"
-        )
-        
+        self.LOGGER(__name__).info(f"🤖 @{bot_details.username} started successfully!")
+
         await ensure_indexes()
 
         self.USER, self.USER_ID = await User().start()
@@ -41,6 +38,22 @@ class Wroxen(Client):
             self.LOGGER(__name__).info("📌 Userbot message handlers registered.")
         except Exception as e:
             self.LOGGER(__name__).error(f"Failed to register userbot handlers: {e}")
+
+        await self._confirm_restart()
+
+    async def _confirm_restart(self):
+        """Edit the restart message after successful restart."""
+        chat_id, msg_id = await get_restart_message()
+        if chat_id and msg_id:
+            try:
+                await self.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    text="✅ Bot restarted successfully!"
+                )
+            except Exception:
+                pass
+            await clear_restart_message()
 
     async def stop(self, *args, **kwargs):
         await super().stop(*args, **kwargs)
