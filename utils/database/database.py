@@ -13,6 +13,8 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 INDEXED_COLL = db["indexed_chats"]
+RESTART_COLL = db["restart_info"]
+
 
 
 async def drop_existing_indexes():
@@ -284,3 +286,33 @@ async def is_chat_linked_async(target_chat: int) -> bool:
     except Exception:
         logger.exception("is_chat_linked_async failed")
         return False
+
+# Restart Function
+
+async def add_restart_message(msg_id: int, chat_id: int):
+    """Save the restart message reference."""
+    try:
+        await RESTART_COLL.delete_many({})
+        await RESTART_COLL.insert_one({"msg_id": msg_id, "chat_id": chat_id})
+        logger.info(f"💾 Restart message saved → chat={chat_id}, msg={msg_id}")
+    except Exception as e:
+        logger.exception(f"add_restart_message failed: {e}")
+
+
+async def get_restart_message():
+    """Return stored restart message (chat_id, msg_id) if any."""
+    try:
+        data = await RESTART_COLL.find_one()
+        if data:
+            return data["chat_id"], data["msg_id"]
+    except Exception as e:
+        logger.exception(f"get_restart_message failed: {e}")
+    return None, None
+
+
+async def clear_restart_message():
+    """Clear restart record after confirming restart."""
+    try:
+        await RESTART_COLL.delete_many({})
+    except Exception as e:
+        logger.exception(f"clear_restart_message failed: {e}")
