@@ -159,8 +159,7 @@ async def index_chat(client, message):
     try:
         async for msg in client.USER.search_messages(
             source_chat_id,
-            filter=MessagesFilter.EMPTY,
-            offset=0
+            filter=MessagesFilter.EMPTY
         ):
             try:
                 if not INDEXING.get(user_id):
