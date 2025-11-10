@@ -21,34 +21,28 @@ async def start_command(client, message):
         return
         
     text = (
-        "✨ <b>Welcome to <u>Wroxen Bot</u>!</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 <i>Your all-in-one Movie & Series Indexing Assistant</i>\n\n"
-
-        "📘 <b>How to Use Me</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🧩 <b>1. Index Source Chats:</b>\n"
+        "✨ <b>Welcome to <u>Wroxen Bot</u>!</b>\n\n"
+        "<b>How to Use Me</b>\n"
+        "<b>1. Index Source Chats:</b>\n"
         "→ <code>/index &lt;target_chat_id&gt; &lt;source_chat_id&gt;</code>\n"
         "   Link your group with a source channel.\n\n"
 
-        "🗑 <b>2. Delete Indexed Data:</b>\n"
+        "<b>2. Delete Indexed Data:</b>\n"
         "→ <code>/delete &lt;target_chat_id&gt; &lt;source_chat_id&gt;</code>\n"
         "   Unlink a group and source channel.\n\n"
 
-        "🔍 <b>3. Search Movies or Series:</b>\n"
+        "<b>3. Search Movies or Series:</b>\n"
         "→ Just send a movie name in your linked group.\n"
-        "   I’ll fetch results instantly! 🎬\n\n"
+        "   I’ll fetch results instantly!\n\n"
 
-        "🧹 <b>Utility Commands</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "<code>/resetdb</code> – 🧼 Clean MongoDB database\n"
-        "<code>/reindex</code> – 🔄 Reindex all chat messages\n"
-        "<code>/clearcache</code> – 🧩 Clear Redis cache (specific chat)\n"
-        "<code>/restart</code> – ♻️ Pull latest commits & restart bot\n"
-        "<code>/flushredis</code> – ⚠️ Clear <b>entire</b> Redis database\n\n"
+        "<b>Utility Commands</b>\n"
+        "<code>/resetdb</code> – Clean MongoDB database\n"
+        "<code>/reindex</code> – Reindex all chat messages\n"
+        "<code>/clearcache</code> – Clear Redis cache (specific chat)\n"
+        "<code>/restart</code> – Pull latest commits & restart bot\n"
+        "<code>/flushredis</code> – Clear <b>entire</b> Redis database\n\n"
 
-        "⚙️ <b>Important Notes</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "<b>Important Notes</b>\n"
         "• Works only in <b>authorized & linked</b> chats ✅\n"
         "• Use <code>/checkbot</code> to verify MongoDB & Redis health 🔍\n"
         "• Userbot must be admin in the source channel 🔧\n"
