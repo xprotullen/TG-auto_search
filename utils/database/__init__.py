@@ -10,5 +10,9 @@ from .database import (
     collection, 
     is_chat_linked_async, 
     INDEXED_COLL,
-    rebuild_indexes
+    rebuild_indexes, 
+    add_restart_message, 
+    get_restart_message, 
+    clear_restart_message, 
+    RESTART_COLL
 )      
