@@ -3,6 +3,7 @@ from os import path as opath, getenv, rename
 from subprocess import run as srun
 from dotenv import load_dotenv
 import logging
+import sys
 
 # ── Setup logger ─────────────────────────────
 logging.basicConfig(level=logging.INFO)
@@ -11,17 +12,15 @@ logger = logging.getLogger("AutoUpdater")
 # ── Load environment variables ───────────────
 load_dotenv("config.env", override=True)
 
-# ── Repo settings ────────────────────────────
 UPSTREAM_REPO = getenv("UPSTREAM_REPO", "https://github.com/xprotullen/TG-auto_search")
 UPSTREAM_BRANCH = getenv("UPSTREAM_BRANCH", "master")
 
 if not UPSTREAM_REPO:
     logger.warning("⚠️ UPSTREAM_REPO is not defined — skipping auto update.")
-    exit(0)
+    sys.exit(0)
 
 logger.info(f"🔄 Updating from repo: {UPSTREAM_REPO} ({UPSTREAM_BRANCH})")
 
-# ── Backup config.env ────────────────────────
 config_backup = "../config.env.tmp"
 
 try:
@@ -46,20 +45,20 @@ try:
     result = srun(git_commands, shell=True)
 
     if result.returncode == 0:
-        logger.info("✅ Successfully updated to latest commit from UPSTREAM_REPO.")
+        logger.info("✅ Updated to latest commit.")
     else:
-        logger.error("❌ Something went wrong while updating. Please verify repo URL or branch name.")
+        logger.error("❌ Update failed — check repo URL/branch.")
 
 finally:
     if opath.exists(config_backup):
         rename(config_backup, "config.env")
 
 # ── Restart services ─────────────────────────
-logger.info("🚀 Starting services...")
+logger.info("🚀 Restarting services...")
 
-# Start gunicorn for web app
+# Start Gunicorn for web app
 srun("nohup gunicorn app:app &", shell=True)
 logger.info("✅ Gunicorn started in background.")
 
-# Start main.py bot
-srun("python3 main.py", shell=True)
+# Start bot
+os.execv(sys.executable, [sys.executable, "main.py"])
