@@ -266,16 +266,15 @@ async def is_source_linked_to_target(target_chat: int, source_chat: int):
         return False
 
 async def is_source_in_db(source_chat: int) -> bool:
-    """Check if the given source_chat exists in DB."""
+    """Get all targets linked to a source."""
     try:
-        doc = await INDEXED_COLL.find_one(
-            {"source_chat": source_chat},
-            {"_id": 1}
-        )
-        return bool(doc)
+        docs = await INDEXED_COLL.find(
+            {"source_chat": source_chat}, {"target_chat": 1}
+        ).to_list(length=None)
+        return [d["target_chat"] for d in docs]
     except Exception:
         logger.exception("is_source_in_db failed")
-        return False
+        return []
         
 async def is_chat_linked_async(target_chat: int) -> bool:
     """Check if target chat is already linked."""
