@@ -53,3 +53,13 @@ try:
 finally:
     if opath.exists(config_backup):
         rename(config_backup, "config.env")
+
+# ── Restart services ─────────────────────────
+logger.info("🚀 Starting services...")
+
+# Start gunicorn for web app
+srun("nohup gunicorn app:app &", shell=True)
+logger.info("✅ Gunicorn started in background.")
+
+# Start main.py bot
+srun("python3 main.py", shell=True)
