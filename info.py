@@ -17,8 +17,8 @@ AUTHORIZED_USERS = [
     int(x) for x in os.getenv("AUTHORIZED_USERS", "").split(",") if x.strip().isdigit()
 ]
 MONGO_URL = os.getenv("MONGO_URL")
-DB_NAME = os.getenv("DB_NAME", "MovieBotDB")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "movies")
+DB_NAME = os.getenv("DB_NAME", "wroxen-moviesbotdb")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "wroxen-movies")
 REDIS_HOST = os.getenv("REDIS_HOST")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_USERNAME = os.getenv("REDIS_USERNAME", None)
