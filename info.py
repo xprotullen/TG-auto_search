@@ -5,7 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv("config.env")
 
 id_pattern = re.compile(r"^\\d+$")
 
