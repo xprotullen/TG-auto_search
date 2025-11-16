@@ -2,7 +2,7 @@ pyrofork==2.3.68
 tgcrypto==1.2.5
 pymongo==4.15.0
 motor==3.7.1
-parsett==1.7.0
+parsett==1.8.2
 redis==5.0.1
 humanize==4.14.0
 python-dotenv==1.0.1
