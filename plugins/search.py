@@ -195,7 +195,7 @@ async def pagination_handler(client, query: CallbackQuery):
         return await query.answer("⚠️ Sorry I Can't Access Your User ID, Your Are Anonymous Admin!", show_alert=True)
         
     if user_id != owner_id:
-        return await query.answer("⚠️ Only the original user can use these buttons!", show_alert=True)
+        return await query.answer("⚠️ Not For You!", show_alert=True)
 
     cache_data = await get_cached_results(chat_id, search_query)
     if not cache_data:
