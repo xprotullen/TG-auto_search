@@ -160,53 +160,72 @@ async def delete_chat_data_async(chat_id: int):
         logger.exception(f"❌ delete_chat_data_async failed: {e}")
         return 0
 
-
-async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 100):
+async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 1000):
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
 
     query = query.strip()
-    q_lower = query.lower()
     words = [w.lower() for w in re.split(r"\s+", query) if w]
     skip = (page - 1) * limit
 
-    base_match = {
-        "chat_id": int(chat_id),
-        "$text": {"$search": query}
-    }
+    # ---- Separate year ----
+    year = None
+    clean_words = []
+    for w in words:
+        if w.isdigit() and len(w) == 4:
+            year = int(w)
+        else:
+            clean_words.append(w)
+
+    # ---- STRICT AND FILTER ----
+    and_filters = [{"chat_id": int(chat_id)}]
+
+    for w in clean_words:
+        safe = re.escape(w)
+        and_filters.append({
+            "$or": [
+                {"title": {"$regex": safe, "$options": "i"}},
+                {"caption": {"$regex": safe, "$options": "i"}},
+                {"lang": {"$regex": safe, "$options": "i"}},
+                {"quality": {"$regex": safe, "$options": "i"}},
+                {"codec": {"$regex": safe, "$options": "i"}},
+            ]
+        })
+
+    if year:
+        and_filters.append({"year": year})
+
+    strict_filter = {"$and": and_filters}
 
     pipeline = [
-        {"$match": base_match},
+        {"$match": strict_filter},
 
-        # ---------- NETFLIX RANKING SIGNALS ----------
+        # ---- NETFLIX RANKING ----
         {"$addFields": {
 
-            # 1️⃣ Exact title match
             "exact_match": {
                 "$cond": [
-                    {"$eq": [{"$toLower": "$title"}, q_lower]},
+                    {"$eq": [{"$toLower": "$title"}, " ".join(clean_words)]},
                     1, 0
                 ]
             },
 
-            # 2️⃣ Starts-with match
             "starts_match": {
                 "$cond": [
                     {
                         "$regexMatch": {
                             "input": {"$toLower": "$title"},
-                            "regex": f"^{re.escape(q_lower)}"
+                            "regex": f"^{re.escape(' '.join(clean_words))}"
                         }
                     },
                     1, 0
                 ]
             },
 
-            # 3️⃣ Word match count
             "word_match": {
                 "$size": {
                     "$filter": {
-                        "input": words,
+                        "input": clean_words,
                         "as": "w",
                         "cond": {
                             "$regexMatch": {
@@ -216,27 +235,16 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
                         }
                     }
                 }
-            },
-
-            # 4️⃣ MongoDB text score
-            "score": {"$meta": "textScore"}
+            }
         }},
 
-        # ---------- FINAL SORT (MOVIES + SERIES) ----------
         {"$sort": {
             "exact_match": -1,
             "starts_match": -1,
             "word_match": -1,
-            "score": -1,
-
-            # Series ordering
             "season": 1,
             "episode": 1,
-
-            # Movies ordering
             "year": -1,
-
-            # Stable fallback
             "title": 1,
             "_id": 1
         }},
@@ -258,10 +266,8 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         }}
     ]
 
-    cursor = collection.aggregate(pipeline)
-    results = await cursor.to_list(length=limit)
-
-    total = await collection.count_documents(base_match)
+    results = await collection.aggregate(pipeline).to_list(length=limit)
+    total = len(results)
     pages = math.ceil(total / limit) or 1
 
     return {
@@ -270,7 +276,6 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         "page": page,
         "pages": pages
     }
-
 
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
     """Link one target chat with one source."""
