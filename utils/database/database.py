@@ -160,7 +160,7 @@ async def delete_chat_data_async(chat_id: int):
         logger.exception(f"❌ delete_chat_data_async failed: {e}")
         return 0
 
-async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 1500):
+async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 200):
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
 
