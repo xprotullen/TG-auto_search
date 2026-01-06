@@ -168,12 +168,12 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
     words = [w for w in re.split(r"\s+", query) if w]
     skip = (page - 1) * limit
 
-    # ⚡ FAST TEXT SEARCH (DO NOT REMOVE)
+    # ⚡ FAST TEXT SEARCH (DO NOT TOUCH)
     text_filter = {"chat_id": int(chat_id), "$text": {"$search": query}}
     regex_filters = []
 
     for w in words:
-        # ✅ WORD-BOUNDARY (ACCURACY)
+        # ✅ WORD BOUNDARY → accuracy fixed
         safe = rf"\b{re.escape(w)}\b"
 
         regex_filters.append({
@@ -207,9 +207,8 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         cursor = (
             collection.find(final_filter, projection)
             .sort([
-                ("score", {"$meta": "textScore"}),  # 🎯 SAME TITLE + YEAR CLUSTER
-                ("year", -1),                       # 🎬 Newer movies first
-                ("season", 1),                      # 📺 SERIES ORDER SAFE
+                ("score", {"$meta": "textScore"}),  # 🔥 relevance only
+                ("season", 1),                      # 📺 series safe
                 ("episode", 1)
             ])
             .skip(skip)
@@ -222,8 +221,7 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
 
         return {"results": results, "total": total, "page": page, "pages": pages}
 
-    except Exception as e:
-        # 🔁 SAFE FALLBACK
+    except Exception:
         fallback_filter = {"chat_id": int(chat_id), "$and": regex_filters}
 
         cursor = (
