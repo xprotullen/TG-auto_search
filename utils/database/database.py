@@ -189,24 +189,31 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
     pipeline = [
         {"$match": final_filter},
 
-        # 🔥 keep text relevance
         {"$addFields": {
             "score": {"$meta": "textScore"},
+
+            # 🎯 group ONLY movies (no season field)
             "group_key": {
-                "$concat": [
-                    {"$toLower": "$title"},
-                    "_",
-                    {"$toString": "$year"}
+                "$cond": [
+                    {"$or": [
+                        {"$eq": ["$season", None]},
+                        {"$eq": ["$season", ""]},
+                    ]},
+                    {"$concat": [
+                        {"$toLower": "$title"},
+                        "_",
+                        {"$toString": "$year"}
+                    ]},
+                    ""   # 👈 series = no grouping
                 ]
             }
         }},
 
-        # ✅ STABLE ordering
         {"$sort": {
             "score": -1,
-            "group_key": 1,   # 🔑 SAME movie together
-            "season": 1,
-            "episode": 1
+            "group_key": 1,   # movies together
+            "season": 1,      # S01 → S02
+            "episode": 1      # E01 → E02
         }},
 
         {"$skip": skip},
