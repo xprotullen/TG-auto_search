@@ -160,7 +160,12 @@ async def delete_chat_data_async(chat_id: int):
         logger.exception(f"❌ delete_chat_data_async failed: {e}")
         return 0
 
-async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 1000):
+async def get_movies_async(
+    chat_id: int,
+    query: str,
+    page: int = 1,
+    limit: int = 100   # 🔒 hard safe limit
+):
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
 
@@ -168,7 +173,7 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
     words = [w.lower() for w in re.split(r"\s+", query) if w]
     skip = (page - 1) * limit
 
-    # ---- Separate year ----
+    # -------- Extract year --------
     year = None
     clean_words = []
     for w in words:
@@ -177,51 +182,47 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         else:
             clean_words.append(w)
 
-    # ---- STRICT AND FILTER ----
-    and_filters = [{"chat_id": int(chat_id)}]
+    clean_query = " ".join(clean_words)
 
-    for w in clean_words:
-        safe = re.escape(w)
-        and_filters.append({
-            "$or": [
-                {"title": {"$regex": safe, "$options": "i"}},
-                {"caption": {"$regex": safe, "$options": "i"}},
-                {"lang": {"$regex": safe, "$options": "i"}},
-                {"quality": {"$regex": safe, "$options": "i"}},
-                {"codec": {"$regex": safe, "$options": "i"}},
-            ]
-        })
+    # -------- STAGE 1: FAST RECALL (INDEXED) --------
+    match_stage = {
+        "chat_id": int(chat_id),
+        "$text": {"$search": clean_query}
+    }
 
     if year:
-        and_filters.append({"year": year})
-
-    strict_filter = {"$and": and_filters}
+        match_stage["year"] = year
 
     pipeline = [
-        {"$match": strict_filter},
+        {"$match": match_stage},
 
-        # ---- NETFLIX RANKING ----
+        # -------- STAGE 2: RANKING SIGNALS --------
         {"$addFields": {
 
+            "text_score": {"$meta": "textScore"},
+
+            # exact title
             "exact_match": {
                 "$cond": [
-                    {"$eq": [{"$toLower": "$title"}, " ".join(clean_words)]},
+                    {"$eq": [{"$toLower": "$title"}, clean_query]},
                     1, 0
                 ]
             },
 
+            # starts with
             "starts_match": {
                 "$cond": [
                     {
                         "$regexMatch": {
                             "input": {"$toLower": "$title"},
-                            "regex": f"^{re.escape(' '.join(clean_words))}"
+                            "regex": f"^{re.escape(clean_query)}"
                         }
                     },
                     1, 0
                 ]
             },
 
+            # word overlap count
             "word_match": {
                 "$size": {
                     "$filter": {
@@ -238,21 +239,31 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
             }
         }},
 
+        # -------- STAGE 3: SORT (NETFLIX STYLE) --------
         {"$sort": {
             "exact_match": -1,
             "starts_match": -1,
             "word_match": -1,
+            "text_score": -1,
+
+            # series order
             "season": 1,
             "episode": 1,
+
+            # movie preference
             "year": -1,
+
+            # stable fallback
             "title": 1,
             "_id": 1
         }},
 
+        # -------- SAFETY CAPS --------
         {"$skip": skip},
         {"$limit": limit},
 
         {"$project": {
+            "_id": 0,
             "title": 1,
             "year": 1,
             "quality": 1,
@@ -266,8 +277,11 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         }}
     ]
 
-    results = await collection.aggregate(pipeline).to_list(length=limit)
-    total = len(results)
+    cursor = collection.aggregate(pipeline, allowDiskUse=True)
+    results = await cursor.to_list(length=limit)
+
+    # -------- COUNT (cheap & indexed) --------
+    total = await collection.count_documents(match_stage)
     pages = math.ceil(total / limit) or 1
 
     return {
