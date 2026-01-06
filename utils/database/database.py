@@ -160,12 +160,7 @@ async def delete_chat_data_async(chat_id: int):
         logger.exception(f"❌ delete_chat_data_async failed: {e}")
         return 0
 
-async def get_movies_async(
-    chat_id: int,
-    query: str,
-    page: int = 1,
-    limit: int = 100  # 🔒 production safe
-):
+async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 150):
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
 
@@ -173,7 +168,7 @@ async def get_movies_async(
     words = [w.lower() for w in re.split(r"\s+", query) if w]
     skip = (page - 1) * limit
 
-    # -------- Extract year --------
+    # ---- Separate year ----
     year = None
     clean_words = []
     for w in words:
@@ -182,56 +177,35 @@ async def get_movies_async(
         else:
             clean_words.append(w)
 
-    clean_query = " ".join(clean_words)
+    # ---- STRICT AND FILTER ----
+    and_filters = [{"chat_id": int(chat_id)}]
 
-    # -------- STAGE 1: FAST RECALL (TEXT INDEX) --------
-    match_stage = {
-        "chat_id": int(chat_id),
-        "$text": {"$search": clean_query}
-    }
+    for w in clean_words:
+        safe = re.escape(w)
+        and_filters.append({
+            "$or": [
+                {"title": {"$regex": safe, "$options": "i"}},
+                {"caption": {"$regex": safe, "$options": "i"}},
+                {"lang": {"$regex": safe, "$options": "i"}},
+                {"quality": {"$regex": safe, "$options": "i"}},
+                {"codec": {"$regex": safe, "$options": "i"}},
+            ]
+        })
 
     if year:
-        match_stage["year"] = year
+        and_filters.append({"year": year})
+
+    strict_filter = {"$and": and_filters}
 
     pipeline = [
-        {"$match": match_stage},
+        {"$match": strict_filter},
 
-        # -------- STAGE 2: RANKING + GROUP SIGNALS --------
+        # ---- NETFLIX RANKING ----
         {"$addFields": {
 
-            # text relevance
-            "text_score": {"$meta": "textScore"},
-
-            # ---------- NORMALIZED TITLE (GROUPING KEY) ----------
-            "title_key": {
-                "$trim": {
-                    "input": {
-                        "$regexReplace": {
-                            "input": {"$toLower": "$title"},
-                            "regex": "[^a-z0-9]+",
-                            "replacement": " "
-                        }
-                    }
-                }
-            },
-
-            # ---------- QUALITY ORDER ----------
-            "quality_rank": {
-                "$switch": {
-                    "branches": [
-                        {"case": {"$regexMatch": {"input": "$quality", "regex": "480"}}, "then": 1},
-                        {"case": {"$regexMatch": {"input": "$quality", "regex": "720"}}, "then": 2},
-                        {"case": {"$regexMatch": {"input": "$quality", "regex": "1080"}}, "then": 3},
-                        {"case": {"$regexMatch": {"input": "$quality", "regex": "2160|4k"}}, "then": 4},
-                    ],
-                    "default": 99
-                }
-            },
-
-            # ---------- SEARCH INTENT SIGNALS ----------
             "exact_match": {
                 "$cond": [
-                    {"$eq": [{"$toLower": "$title"}, clean_query]},
+                    {"$eq": [{"$toLower": "$title"}, " ".join(clean_words)]},
                     1, 0
                 ]
             },
@@ -241,7 +215,7 @@ async def get_movies_async(
                     {
                         "$regexMatch": {
                             "input": {"$toLower": "$title"},
-                            "regex": f"^{re.escape(clean_query)}"
+                            "regex": f"^{re.escape(' '.join(clean_words))}"
                         }
                     },
                     1, 0
@@ -264,27 +238,14 @@ async def get_movies_async(
             }
         }},
 
-        # -------- STAGE 3: FINAL SORT (NETFLIX STYLE) --------
         {"$sort": {
-            # 🔥 search intent (accuracy unchanged)
             "exact_match": -1,
             "starts_match": -1,
             "word_match": -1,
-            "text_score": -1,
-
-            # 🔥 group same titles together
-            "title_key": 1,
-            "year": 1,
-
-            # 🔥 variants inside same title
-            "quality_rank": 1,
-            "codec": 1,
-
-            # series support
             "season": 1,
             "episode": 1,
-
-            # stable fallback
+            "year": -1,
+            "title": 1,
             "_id": 1
         }},
 
@@ -292,7 +253,6 @@ async def get_movies_async(
         {"$limit": limit},
 
         {"$project": {
-            "_id": 0,
             "title": 1,
             "year": 1,
             "quality": 1,
@@ -306,10 +266,8 @@ async def get_movies_async(
         }}
     ]
 
-    cursor = collection.aggregate(pipeline, allowDiskUse=True)
-    results = await cursor.to_list(length=limit)
-
-    total = await collection.count_documents(match_stage)
+    results = await collection.aggregate(pipeline).to_list(length=limit)
+    total = len(results)
     pages = math.ceil(total / limit) or 1
 
     return {
