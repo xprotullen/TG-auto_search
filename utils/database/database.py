@@ -168,14 +168,11 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
     words = [w for w in re.split(r"\s+", query) if w]
     skip = (page - 1) * limit
 
-    # ⚡ FAST TEXT SEARCH (DO NOT TOUCH)
     text_filter = {"chat_id": int(chat_id), "$text": {"$search": query}}
     regex_filters = []
 
     for w in words:
-        # ✅ WORD BOUNDARY → accuracy fixed
         safe = rf"\b{re.escape(w)}\b"
-
         regex_filters.append({
             "$or": [
                 {"title":   {"$regex": safe, "$options": "i"}},
@@ -189,53 +186,56 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
 
     final_filter = {"$and": [text_filter] + regex_filters}
 
-    projection = {
-        "score": {"$meta": "textScore"},
-        "title": 1,
-        "year": 1,
-        "quality": 1,
-        "lang": 1,
-        "print": 1,
-        "codec": 1,
-        "season": 1,
-        "episode": 1,
-        "caption": 1,
-        "link": 1
+    pipeline = [
+        {"$match": final_filter},
+
+        # 🔥 keep text relevance
+        {"$addFields": {
+            "score": {"$meta": "textScore"},
+            "group_key": {
+                "$concat": [
+                    {"$toLower": "$title"},
+                    "_",
+                    {"$toString": "$year"}
+                ]
+            }
+        }},
+
+        # ✅ STABLE ordering
+        {"$sort": {
+            "score": -1,
+            "group_key": 1,   # 🔑 SAME movie together
+            "season": 1,
+            "episode": 1
+        }},
+
+        {"$skip": skip},
+        {"$limit": limit},
+
+        {"$project": {
+            "title": 1,
+            "year": 1,
+            "quality": 1,
+            "lang": 1,
+            "print": 1,
+            "codec": 1,
+            "season": 1,
+            "episode": 1,
+            "caption": 1,
+            "link": 1
+        }}
+    ]
+
+    results = await collection.aggregate(pipeline).to_list(length=limit)
+    total = len(results)
+    pages = math.ceil(total / limit) or 1
+
+    return {
+        "results": results,
+        "total": total,
+        "page": page,
+        "pages": pages
     }
-
-    try:
-        cursor = (
-            collection.find(final_filter, projection)
-            .sort([
-                ("score", {"$meta": "textScore"}),  # 🔥 relevance only
-                ("season", 1),                      # 📺 series safe
-                ("episode", 1)
-            ])
-            .skip(skip)
-            .limit(limit)
-        )
-
-        results = await cursor.to_list(length=limit)
-        total = await collection.count_documents(final_filter)
-        pages = math.ceil(total / limit) or 1
-
-        return {"results": results, "total": total, "page": page, "pages": pages}
-
-    except Exception:
-        fallback_filter = {"chat_id": int(chat_id), "$and": regex_filters}
-
-        cursor = (
-            collection.find(fallback_filter)
-            .sort([("season", 1), ("episode", 1)])
-            .skip(skip)
-            .limit(limit)
-        )
-
-        results = await cursor.to_list(length=limit)
-        total = await collection.count_documents(fallback_filter)
-        pages = math.ceil(total / limit) or 1
-
-        return {"results": results, "total": total, "page": page, "pages": pages}
 
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
     """Link one target chat with one source."""
