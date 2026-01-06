@@ -162,70 +162,114 @@ async def delete_chat_data_async(chat_id: int):
 
 
 async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 100):
-    """Full-text + regex hybrid search."""
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
 
     query = query.strip()
-    words = [w for w in re.split(r"\s+", query) if w]
+    q_lower = query.lower()
+    words = [w.lower() for w in re.split(r"\s+", query) if w]
     skip = (page - 1) * limit
 
-    text_filter = {"chat_id": int(chat_id), "$text": {"$search": query}}
-    regex_filters = []
-
-    for w in words:
-        safe = re.escape(w)
-        regex_filters.append({
-            "$or": [
-                {"title": {"$regex": safe, "$options": "i"}},
-                {"quality": {"$regex": safe, "$options": "i"}},
-                {"lang": {"$regex": safe, "$options": "i"}},
-                {"print": {"$regex": safe, "$options": "i"}},
-                {"caption": {"$regex": safe, "$options": "i"}},
-                {"codec": {"$regex": safe, "$options": "i"}},
-                {"season": {"$regex": safe, "$options": "i"}},
-                {"episode": {"$regex": safe, "$options": "i"}},
-            ]
-        })
-
-    final_filter = {"$and": [text_filter] + regex_filters} if regex_filters else text_filter
-    projection = {
-        "score": {"$meta": "textScore"},
-        "title": 1, "year": 1, "quality": 1, "lang": 1,
-        "print": 1, "codec": 1, "season": 1, "episode": 1,
-        "caption": 1, "link": 1
+    base_match = {
+        "chat_id": int(chat_id),
+        "$text": {"$search": query}
     }
 
-    try:
-        cursor = (
-            collection.find(final_filter, projection)
-            .sort([
-                ("score", {"$meta": "textScore"}),
-                ("season", 1),
-                ("episode", 1)
-            ])
-            .skip(skip)
-            .limit(limit)
-        )
-        results = await cursor.to_list(length=limit)
-        total = await collection.count_documents(final_filter)
-        pages = math.ceil(total / limit) or 1
-        logger.info(f"🔍 Found {len(results)}/{total} results for '{query}' in chat {chat_id}")
-        return {"results": results, "total": total, "page": page, "pages": pages}
+    pipeline = [
+        {"$match": base_match},
 
-    except Exception as e:
-        logger.exception(f"⚠️ Text search failed ({e}), fallback to regex")
-        fallback_filter = {"chat_id": int(chat_id), "$and": regex_filters}
-        cursor = (
-            collection.find(fallback_filter)
-            .sort([("season", 1), ("episode", 1)])
-            .skip(skip)
-            .limit(limit)
-        )
-        results = await cursor.to_list(length=limit)
-        total = await collection.count_documents(fallback_filter)
-        pages = math.ceil(total / limit) or 1
-        return {"results": results, "total": total, "page": page, "pages": pages}
+        # ---------- NETFLIX RANKING SIGNALS ----------
+        {"$addFields": {
+
+            # 1️⃣ Exact title match
+            "exact_match": {
+                "$cond": [
+                    {"$eq": [{"$toLower": "$title"}, q_lower]},
+                    1, 0
+                ]
+            },
+
+            # 2️⃣ Starts-with match
+            "starts_match": {
+                "$cond": [
+                    {
+                        "$regexMatch": {
+                            "input": {"$toLower": "$title"},
+                            "regex": f"^{re.escape(q_lower)}"
+                        }
+                    },
+                    1, 0
+                ]
+            },
+
+            # 3️⃣ Word match count
+            "word_match": {
+                "$size": {
+                    "$filter": {
+                        "input": words,
+                        "as": "w",
+                        "cond": {
+                            "$regexMatch": {
+                                "input": {"$toLower": "$title"},
+                                "regex": "$$w"
+                            }
+                        }
+                    }
+                }
+            },
+
+            # 4️⃣ MongoDB text score
+            "score": {"$meta": "textScore"}
+        }},
+
+        # ---------- FINAL SORT (MOVIES + SERIES) ----------
+        {"$sort": {
+            "exact_match": -1,
+            "starts_match": -1,
+            "word_match": -1,
+            "score": -1,
+
+            # Series ordering
+            "season": 1,
+            "episode": 1,
+
+            # Movies ordering
+            "year": -1,
+
+            # Stable fallback
+            "title": 1,
+            "_id": 1
+        }},
+
+        {"$skip": skip},
+        {"$limit": limit},
+
+        {"$project": {
+            "title": 1,
+            "year": 1,
+            "quality": 1,
+            "lang": 1,
+            "print": 1,
+            "codec": 1,
+            "season": 1,
+            "episode": 1,
+            "caption": 1,
+            "link": 1
+        }}
+    ]
+
+    cursor = collection.aggregate(pipeline)
+    results = await cursor.to_list(length=limit)
+
+    total = await collection.count_documents(base_match)
+    pages = math.ceil(total / limit) or 1
+
+    return {
+        "results": results,
+        "total": total,
+        "page": page,
+        "pages": pages
+    }
 
 
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
