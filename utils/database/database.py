@@ -160,126 +160,73 @@ async def delete_chat_data_async(chat_id: int):
         logger.exception(f"❌ delete_chat_data_async failed: {e}")
         return 0
 
-async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 200):
+async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int = 100):
+    """Full-text + regex hybrid search."""
     if not query or not query.strip():
         return {"results": [], "total": 0, "page": 1, "pages": 1}
 
     query = query.strip()
-    words = [w.lower() for w in re.split(r"\s+", query) if w]
+    words = [w for w in re.split(r"\s+", query) if w]
     skip = (page - 1) * limit
 
-    # ---- Separate year ----
-    year = None
-    clean_words = []
+    text_filter = {"chat_id": int(chat_id), "$text": {"$search": query}}
+    regex_filters = []
+
     for w in words:
-        if w.isdigit() and len(w) == 4:
-            year = int(w)
-        else:
-            clean_words.append(w)
-
-    # ---- STRICT AND FILTER ----
-    # ✅ Use $text for faster search
-    and_filters = [
-        {"chat_id": int(chat_id)},
-        {"$text": {"$search": query}}
-    ]
-
-    for w in clean_words:
-        # ✅ Word boundary
+        # ✅ ONLY CHANGE IS HERE
         safe = rf"\b{re.escape(w)}\b"
-        and_filters.append({
+
+        regex_filters.append({
             "$or": [
                 {"title": {"$regex": safe, "$options": "i"}},
-                {"caption": {"$regex": safe, "$options": "i"}},
-                {"lang": {"$regex": safe, "$options": "i"}},
                 {"quality": {"$regex": safe, "$options": "i"}},
+                {"lang": {"$regex": safe, "$options": "i"}},
+                {"print": {"$regex": safe, "$options": "i"}},
+                {"caption": {"$regex": safe, "$options": "i"}},
                 {"codec": {"$regex": safe, "$options": "i"}},
+                {"season": {"$regex": safe, "$options": "i"}},
+                {"episode": {"$regex": safe, "$options": "i"}},
             ]
         })
 
-    if year:
-        and_filters.append({"year": year})
-
-    strict_filter = {"$and": and_filters}
-
-    pipeline = [
-        {"$match": strict_filter},
-
-        # ---- NETFLIX RANKING ----
-        {"$addFields": {
-            "exact_match": {
-                "$cond": [
-                    {"$eq": [{"$toLower": "$title"}, " ".join(clean_words)]},
-                    1, 0
-                ]
-            },
-            "starts_match": {
-                "$cond": [
-                    {
-                        "$regexMatch": {
-                            "input": {"$toLower": "$title"},
-                            "regex": f"^{re.escape(' '.join(clean_words))}"
-                        }
-                    },
-                    1, 0
-                ]
-            },
-            "word_match": {
-                "$size": {
-                    "$filter": {
-                        "input": clean_words,
-                        "as": "w",
-                        "cond": {
-                            "$regexMatch": {
-                                "input": {"$toLower": "$title"},
-                                "regex": rf"\b$$w\b"
-                            }
-                        }
-                    }
-                }
-            },
-            "score": {"$meta": "textScore"}  # ✅ Keep text relevance
-        }},
-
-        {"$sort": {
-            "score": -1,           # text relevance first
-            "exact_match": -1,      # then exact title
-            "starts_match": -1,     # then starts match
-            "word_match": -1,       # then word matches
-            "season": 1,            # series order
-            "episode": 1,
-            "year": -1,
-            "title": 1,
-            "_id": 1
-        }},
-
-        {"$skip": skip},
-        {"$limit": limit},
-
-        {"$project": {
-            "title": 1,
-            "year": 1,
-            "quality": 1,
-            "lang": 1,
-            "print": 1,
-            "codec": 1,
-            "season": 1,
-            "episode": 1,
-            "caption": 1,
-            "link": 1
-        }}
-    ]
-
-    results = await collection.aggregate(pipeline).to_list(length=limit)
-    total = len(results)
-    pages = math.ceil(total / limit) or 1
-
-    return {
-        "results": results,
-        "total": total,
-        "page": page,
-        "pages": pages
+    final_filter = {"$and": [text_filter] + regex_filters} if regex_filters else text_filter
+    projection = {
+        "score": {"$meta": "textScore"},
+        "title": 1, "year": 1, "quality": 1, "lang": 1,
+        "print": 1, "codec": 1, "season": 1, "episode": 1,
+        "caption": 1, "link": 1
     }
+
+    try:
+        cursor = (
+            collection.find(final_filter, projection)
+            .sort([
+                ("score", {"$meta": "textScore"}),
+                ("season", 1),
+                ("episode", 1)
+            ])
+            .skip(skip)
+            .limit(limit)
+        )
+        results = await cursor.to_list(length=limit)
+        total = await collection.count_documents(final_filter)
+        pages = math.ceil(total / limit) or 1
+        logger.info(f"🔍 Found {len(results)}/{total} results for '{query}' in chat {chat_id}")
+        return {"results": results, "total": total, "page": page, "pages": pages}
+
+    except Exception as e:
+        logger.exception(f"⚠️ Text search failed ({e}), fallback to regex")
+        fallback_filter = {"chat_id": int(chat_id), "$and": regex_filters}
+        cursor = (
+            collection.find(fallback_filter)
+            .sort([("season", 1), ("episode", 1)])
+            .skip(skip)
+            .limit(limit)
+        )
+        results = await cursor.to_list(length=limit)
+        total = await collection.count_documents(fallback_filter)
+        pages = math.ceil(total / limit) or 1
+        return {"results": results, "total": total, "page": page, "pages": pages}
 
 async def mark_indexed_chat_async(target_chat: int, source_chat: int):
     """Link one target chat with one source."""
