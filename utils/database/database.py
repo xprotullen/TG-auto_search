@@ -211,7 +211,7 @@ async def get_movies_async(chat_id: int, query: str, page: int = 1, limit: int =
         results = await cursor.to_list(length=limit)
         total = await collection.count_documents(final_filter)
         pages = math.ceil(total / limit) or 1
-        logger.info(f"🔍 Found {len(results)}/{total} results for '{query}' in chat {chat_id}")
+    #   logger.info(f"🔍 Found {len(results)}/{total} results for '{query}' in chat {chat_id}")
         return {"results": results, "total": total, "page": page, "pages": pages}
 
     except Exception as e:
